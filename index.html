@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GW2 MIDI to Numeric Notation</title>
+
+  <!-- Google Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Our stylesheet -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+
+  <header class="site-header">
+    <div class="brand">
+      <div class="logo">♫</div>
+      <div>
+        <h1>MIDI to GW2 Numeric Notation</h1>
+        <p class="subtitle">Turn your MIDI file into Guild Wars 2 music notation</p>
+      </div>
+    </div>
+
+    <nav>
+      <span>◈ &nbsp; MIDI converter</span>
+    </nav>
+  </header>
+
+  <main class="app-layout">
+
+    <!-- =========================================================
+         LEFT SIDEBAR
+         ========================================================= -->
+    <aside class="sidebar">
+
+      <!-- MIDI FILE PANEL -->
+      <section class="panel panel-padding">
+
+        <div class="drop-zone" id="dropZone">
+          <div class="drop-icon">♧</div>
+          <strong>Drop your MIDI file here</strong>
+          <small>or click to browse · .mid / .midi</small>
+          <input id="midiFile" type="file" accept=".mid,.midi,audio/midi">
+        </div>
+
+        <div class="file-row">
+          <span id="fileName">No MIDI file selected</span>
+          <button id="clearFile" title="Clear file">×</button>
+        </div>
+
+        <div class="separator"></div>
+
+        <h3 class="section-title">
+          <span>⚙</span> Conversion options
+        </h3>
+
+        <label for="tempo">Tempo override <small>(optional)</small></label>
+        <input id="tempo" type="number" min="20" max="300" placeholder="Use MIDI tempo">
+
+        <label>Playable octave reference</label>
+        <div class="octave-buttons">
+          <button class="octave-button" data-octave="low">Low</button>
+          <button class="octave-button active" data-octave="mid">Mid</button>
+          <button class="octave-button" data-octave="high">High</button>
+        </div>
+
+        <label for="outputFormat">Notation output</label>
+        <select id="outputFormat">
+          <option value="gw2">GW2 Numeric Notation</option>
+          <option value="degrees">Scale degrees</option>
+        </select>
+
+        <label for="beatGrid">Beat grid</label>
+        <select id="beatGrid">
+          <option value="0.25">Quarter-beat</option>
+          <option value="0.5">Half-beat</option>
+          <option value="0.125">Eighth-beat</option>
+          <option value="1">Whole beat</option>
+        </select>
+
+        <label for="transposeMode">Key optimization</label>
+        <select id="transposeMode">
+          <option value="auto" selected>Auto — easiest GW2 key</option>
+          <option value="off">Keep original key</option>
+        </select>
+        <small class="field-help">Automatically chooses a nearby transposition with fewer sharps while strongly preferring the 3-octave GW2 playable range.</small>
+
+        <button class="primary-button" id="convertButton" disabled>
+          ✦ &nbsp; Convert MIDI
+        </button>
+
+        <div id="errorMessage" class="warning"></div>
+      </section>
+
+
+      <!-- LEGEND -->
+      <section class="panel panel-padding">
+        <h3 class="section-title">
+          <span>ⓘ</span> Powerina's notation quick reference
+        </h3>
+
+        <div class="legend">
+          <span class="symbol">━</span>
+          <span>Pause for one beat</span>
+
+          <span class="symbol">-</span>
+          <span>Pause for half a beat</span>
+
+          <span class="symbol high">()</span>
+          <span>High octave</span>
+
+          <span class="symbol low">[]</span>
+          <span>Low octave</span>
+
+          <span class="symbol chord">/</span>
+          <span>Chord — notes played together</span>
+
+          <span class="symbol">·</span>
+          <span>Dotted note (+50%)</span>
+
+          <span class="symbol">.</span>
+          <span>Quarter dot (+25%)</span>
+
+          <span class="symbol">·.</span>
+          <span>Double dotted (+75%)</span>
+
+          <span class="symbol outside">{ }</span>
+          <span>Below playable octave</span>
+
+          <span class="symbol outside">&lt; &gt;</span>
+          <span>Above playable octave</span>
+
+          <span class="symbol accidental">#</span>
+          <span>Accidental / sharp</span>
+
+          <span class="symbol">|</span>
+          <span>Every 4 beats</span>
+        </div>
+
+        <p class="hint">
+          from: https://gw2-songbook.com/song/568
+        </p>
+      </section>
+
+    </aside>
+
+
+    <!-- =========================================================
+         MAIN CONTENT
+         ========================================================= -->
+    <div class="main-content">
+
+      <!-- =======================================================
+           MIDI OUTPUT
+           ======================================================= -->
+      <section class="panel output-panel">
+
+      <div class="output-header">
+        <h2><span>♫</span> MIDI notation output</h2>
+        <div id="status" class="status">Waiting for a MIDI file</div>
+      </div>
+
+      <div id="channels" class="channels">
+
+        <div class="empty-state">
+          <div>
+            <div class="empty-note">♫</div>
+            <strong>Your score will appear here</strong>
+            Upload a MIDI file to see each track or channel
+            converted into GW2 notation.
+          </div>
+        </div>
+
+      </div>
+
+      <div class="toolbar">
+
+        <div class="toolbar-buttons">
+          <button id="copyButton" disabled>▣ Copy all</button>
+          <button id="downloadButton" disabled>↓ Download .txt</button>
+        </div>
+
+        <span class="hint">Processed locally in your browser</span>
+
+      </div>
+
+      <div class="footer">
+        <span>♫ &nbsp; for GW2 musicians</span>
+        <span>Made by Nero</span>
+      </div>
+
+      </section>
+
+
+      <!-- =======================================================
+           PLAYABLE GW2 PIANO
+           ======================================================= -->
+      <section class="panel piano-panel">
+
+        <div class="piano-header">
+          <div>
+            <h2><span>♩</span> Playable Piano (inspired by Sarya)</h2>
+            <p>
+              Use <kbd>1</kbd>–<kbd>8</kbd> or for white keys,
+              and <kbd>F1</kbd>–<kbd>F6</kbd> for sharps.
+              Press <kbd>9</kbd> / <kbd>0</kbd> to change octave.
+            </p>
+          </div>
+
+          <div class="piano-octave-controls">
+            <button
+              type="button"
+              id="octaveDown"
+              title="Lower octave"
+            >
+              ‹ &nbsp; [ 9 ] &nbsp; Oct −
+            </button>
+
+            <div
+              class="octave-display"
+              id="pianoOctaveDisplay"
+              aria-live="polite"
+            >
+              OCTAVE: MID
+            </div>
+
+            <button
+              type="button"
+              id="octaveUp"
+              title="Higher octave"
+            >
+              Oct + &nbsp; [ 0 ] &nbsp; ›
+            </button>
+          </div>
+        </div>
+
+        <div
+          class="piano-keyboard"
+          id="pianoKeyboard"
+          aria-label="Playable GW2 piano"
+        >
+          <!-- Generated by app.js -->
+        </div>
+
+        <div class="piano-help">
+          <span>
+            <kbd>9</kbd> Lower octave
+          </span>
+          <span>
+            <kbd>0</kbd> Higher octave
+          </span>
+          <span>
+            <kbd>Space</kbd> stops the current note
+          </span>
+
+
+          <span id="pianoStatus">
+            Ready · C4–C5
+          </span>
+        </div>
+
+      </section>
+
+    </div>
+
+  </main>
+
+
+  <!-- Tone.js MIDI parser -->
+  <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js"></script>
+
+  <!-- Our JavaScript -->
+  <script src="js/app.js"></script>
+
+</body>
+</html>

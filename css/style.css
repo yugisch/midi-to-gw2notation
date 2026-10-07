@@ -1,0 +1,1126 @@
+/* ============================================================
+   GW2 MIDI NOTATION
+   Main stylesheet
+   ============================================================ */
+
+
+/* ============================================================
+   1. VARIABLES
+   Change these to quickly change the entire theme.
+   ============================================================ */
+
+:root {
+  --background: #080d1c;
+  --panel: #101a31;
+  --panel-dark: #0b1428;
+
+  --border: #25365b;
+  --border-light: #34466e;
+
+  --text: #e9efff;
+  --text-muted: #91a2c8;
+
+  --purple: #a78bfa;
+  --purple-dark: #6544e8;
+
+  --cyan: #5eead4;
+  --pink: #fb7185;
+  --yellow: #fbbf24;
+  --green: #4ade80;
+
+  --radius: 14px;
+}
+
+
+/* ============================================================
+   2. RESET / BASE
+   ============================================================ */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+
+  background:
+    radial-gradient(
+      ellipse at 75% -20%,
+      #31245c 0,
+      transparent 36%
+    ),
+    radial-gradient(
+      ellipse at 10% 40%,
+      #112b4a 0,
+      transparent 34%
+    ),
+    var(--background);
+
+  color: var(--text);
+  font-family: "Manrope", system-ui, sans-serif;
+}
+
+
+/* ============================================================
+   3. HEADER
+   ============================================================ */
+
+.site-header {
+  padding: 24px clamp(18px, 4vw, 60px);
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+
+  border-bottom: 1px solid #29385b;
+  background: #080d1cbb;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.logo {
+  font-size: 35px;
+  color: var(--purple);
+
+  filter: drop-shadow(
+    0 0 12px #a78bfa66
+  );
+}
+
+h1 {
+  margin: 0;
+
+  font-size: clamp(21px, 3vw, 31px);
+  font-weight: 700;
+  letter-spacing: -0.8px;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+nav {
+  display: flex;
+  gap: 22px;
+
+  color: #b7c5e5;
+  font-size: 13px;
+}
+
+
+/* ============================================================
+   4. MAIN LAYOUT
+   ============================================================ */
+
+.app-layout {
+  max-width: 1500px;
+  margin: auto;
+  padding: 22px clamp(14px, 2vw, 28px);
+
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 18px;
+}
+
+.main-content {
+  min-width: 0;
+
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+
+/* ============================================================
+   5. PANELS
+   ============================================================ */
+
+.panel {
+  overflow: hidden;
+
+  background:
+    linear-gradient(
+      145deg,
+      #111c35f2,
+      #0b1428f5
+    );
+
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+
+  box-shadow: 0 16px 45px #0003;
+}
+
+.panel-padding {
+  padding: 17px;
+}
+
+
+/* ============================================================
+   6. FILE DROP AREA
+   ============================================================ */
+
+.drop-zone {
+  padding: 27px 14px;
+
+  text-align: center;
+
+  border: 1px dashed #52658e;
+  border-radius: 10px;
+
+  background: #0a1328;
+
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.drop-zone:hover,
+.drop-zone.dragging {
+  border-color: var(--purple);
+  background: #171638;
+}
+
+.drop-icon {
+  font-size: 28px;
+  color: var(--purple);
+}
+
+.drop-zone strong {
+  display: block;
+  margin: 6px 0;
+  font-size: 14px;
+}
+
+.drop-zone small {
+  color: var(--text-muted);
+}
+
+#midiFile {
+  display: none;
+}
+
+.file-row {
+  margin-top: 12px;
+  padding: 10px 12px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+
+  background: #0a1328;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+
+  font-size: 12px;
+  color: #cbd7f4;
+}
+
+.file-row button {
+  border: 0;
+  background: none;
+
+  color: var(--text-muted);
+  cursor: pointer;
+
+  font-size: 18px;
+}
+
+.separator {
+  height: 1px;
+  margin: 16px -17px;
+
+  background: var(--border);
+}
+
+
+/* ============================================================
+   7. FORM CONTROLS
+   ============================================================ */
+
+.section-title {
+  margin: 0 0 13px;
+
+  display: flex;
+  align-items: center;
+  gap: 9px;
+
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.section-title span {
+  color: var(--purple);
+}
+
+label {
+  display: block;
+  margin: 12px 0 7px;
+
+  color: #b6c4e2;
+  font-size: 12px;
+}
+
+label small {
+  color: var(--text-muted);
+}
+
+input[type="number"],
+select {
+  width: 100%;
+  padding: 10px 11px;
+
+  background: #091226;
+  color: var(--text);
+
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+
+  font: 500 13px Manrope;
+  outline: none;
+}
+
+input:focus,
+select:focus {
+  border-color: var(--purple);
+}
+
+
+/* ============================================================
+   8. OCTAVE BUTTONS
+   ============================================================ */
+
+.octave-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.octave-button {
+  padding: 9px 4px;
+
+  background: #0a1328;
+  color: #cbd5ef;
+
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+
+  cursor: pointer;
+}
+
+.octave-button.active {
+  border-color: var(--purple);
+  background: #241b48;
+  color: white;
+}
+
+.octave-button[data-octave="low"].active {
+  border-color: var(--green);
+  background: #102d28;
+}
+
+.octave-button[data-octave="high"].active {
+  border-color: var(--yellow);
+  background: #332811;
+}
+
+
+/* ============================================================
+   9. BUTTONS
+   ============================================================ */
+
+.primary-button {
+  width: 100%;
+  margin-top: 15px;
+  padding: 13px;
+
+  border: 0;
+  border-radius: 9px;
+
+  background: linear-gradient(
+    100deg,
+    #8b5cf6,
+    var(--purple-dark)
+  );
+
+  color: white;
+
+  font: 700 14px Manrope;
+
+  cursor: pointer;
+
+  box-shadow: 0 8px 22px #7c3aed30;
+}
+
+.primary-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.toolbar button {
+  padding: 8px 11px;
+
+  background: #111e39;
+  color: #dbe6ff;
+
+  border: 1px solid var(--border-light);
+  border-radius: 7px;
+
+  font: 600 11px Manrope;
+  cursor: pointer;
+}
+
+.toolbar button:hover {
+  border-color: var(--purple);
+}
+
+.toolbar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+
+/* ============================================================
+   10. LEGEND
+   ============================================================ */
+
+.legend {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 8px 10px;
+
+  align-items: center;
+
+  font-size: 11px;
+  color: #bac7e4;
+}
+
+.symbol {
+  color: var(--purple);
+  font: 500 15px "DM Mono", monospace;
+  text-align: center;
+}
+
+.symbol.high {
+  color: var(--yellow);
+}
+
+.symbol.low {
+  color: var(--green);
+}
+
+.symbol.outside {
+  color: #c4b5fd;
+}
+
+.symbol.chord {
+  color: #67e8f9;
+}
+
+.symbol.accidental {
+  color: var(--pink);
+}
+
+.hint {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+
+/* ============================================================
+   11. OUTPUT HEADER
+   ============================================================ */
+
+.output-header {
+  padding: 16px 19px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  border-bottom: 1px solid var(--border);
+}
+
+.output-header h2 {
+  margin: 0;
+
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  font-size: 15px;
+}
+
+.output-header h2 span {
+  color: var(--purple);
+}
+
+.status {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+
+/* ============================================================
+   12. CHANNEL OUTPUT
+   ============================================================ */
+
+.channels {
+  padding: 14px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.channel {
+  display: grid;
+  grid-template-columns: 125px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.channel-meta {
+  padding: 8px 10px;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+
+  border-left: 3px solid var(--channel-color);
+}
+
+.channel-name {
+  color: var(--channel-color);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.channel-info {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.notation {
+  min-height: 55px;
+  padding: 11px 12px;
+
+  overflow-x: hidden;
+
+  background: #091226;
+  border: 1px solid #203256;
+  border-radius: 9px;
+
+  color: #dbe6ff;
+
+  font: 12px/2 "DM Mono", monospace;
+  white-space: pre-wrap;
+  overflow-wrap: normal;
+}
+
+.notation .high {
+  color: var(--yellow);
+}
+
+.notation .low {
+  color: var(--green);
+}
+
+.notation .outside {
+  color: #c4b5fd;
+}
+
+.notation .accidental {
+  color: var(--pink);
+}
+
+.notation .bar {
+  color: #647ba8;
+}
+
+.notation .chord {
+  color: #67e8f9;
+}
+
+
+/* ============================================================
+   13. EMPTY STATE
+   ============================================================ */
+
+.empty-state {
+  min-height: 300px;
+
+  display: grid;
+  place-items: center;
+
+  padding: 30px;
+
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.empty-state strong {
+  display: block;
+  margin-bottom: 6px;
+
+  color: #d5def4;
+  font-size: 14px;
+}
+
+.empty-note {
+  margin-bottom: 10px;
+
+  color: #6953a9;
+  font-size: 48px;
+}
+
+
+/* ============================================================
+   14. TOOLBAR / FOOTER
+   ============================================================ */
+
+.toolbar {
+  padding: 12px 16px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+
+  border-top: 1px solid var(--border);
+}
+
+.toolbar-buttons {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.footer {
+  padding: 14px 20px;
+
+  display: flex;
+  justify-content: space-between;
+
+  border-top: 1px solid var(--border);
+
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.warning {
+  margin-top: 10px;
+
+  color: var(--yellow);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+
+/* ============================================================
+   15. RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 850px) {
+
+  .app-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .sidebar > section:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 560px) {
+
+  .site-header {
+    padding: 17px;
+  }
+
+  nav {
+    gap: 12px;
+  }
+
+  .sidebar {
+    display: flex;
+  }
+
+  .channel {
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .channel-meta {
+    padding: 5px;
+  }
+
+  .channel-name {
+    font-size: 11px;
+  }
+
+  .channel-info {
+    font-size: 10px;
+  }
+
+  .notation {
+    padding: 9px;
+    font-size: 11px;
+  }
+
+  .output-header {
+    padding: 13px;
+  }
+
+  .channels {
+    padding: 9px;
+  }
+}
+
+
+/* ============================================================
+   16. PLAYABLE GW2 PIANO
+   ============================================================ */
+
+.piano-panel {
+  overflow: hidden;
+}
+
+.piano-header {
+  padding: 17px 20px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+
+  border-bottom: 1px solid var(--border);
+}
+
+.piano-header h2 {
+  margin: 0;
+
+  display: flex;
+  align-items: center;
+  gap: 9px;
+
+  font-size: 15px;
+}
+
+.piano-header h2 span {
+  color: var(--purple);
+}
+
+.piano-header p {
+  margin: 6px 0 0;
+
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.piano-octave-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.piano-octave-controls button {
+  min-height: 44px;
+  padding: 9px 17px;
+
+  background: #151d33;
+  color: #dbe6ff;
+
+  border: 1px solid #34466e;
+  border-radius: 9px;
+
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+  font-weight: 500;
+
+  cursor: pointer;
+
+  box-shadow:
+    0 3px 0 #0a1020,
+    0 8px 18px #0006;
+
+  transition:
+    transform .08s ease,
+    box-shadow .08s ease,
+    background .15s ease;
+}
+
+.piano-octave-controls button:hover {
+  background: #1d2945;
+}
+
+.piano-octave-controls button:active {
+  transform: translateY(2px);
+  box-shadow:
+    0 1px 0 #0a1020,
+    0 4px 10px #0006;
+}
+
+.octave-display {
+  min-width: 155px;
+  padding: 12px 17px;
+
+  text-align: center;
+
+  background: #141e35;
+  color: #f0b7c4;
+
+  border: 1px solid #3a4c73;
+  border-radius: 9px;
+
+  font-family: Georgia, serif;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+
+  box-shadow:
+    inset 0 1px 0 #ffffff0a,
+    0 3px 0 #0a1020;
+}
+
+.piano-keyboard {
+  position: relative;
+
+  display: flex;
+
+  min-height: 260px;
+  margin: 20px 28px 12px;
+
+  padding: 0 0 3px;
+
+  background: #0b1326;
+
+  border: 1px solid #263a61;
+  border-radius: 8px;
+
+  box-shadow:
+    inset 0 0 0 1px #ffffff08,
+    0 13px 25px #0008;
+
+  overflow: hidden;
+}
+
+.piano-white-key {
+  position: relative;
+
+  flex: 1;
+  min-width: 55px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+
+  padding: 0 5px 23px;
+
+  background:
+    linear-gradient(
+      to bottom,
+      #273453 0%,
+      #18233d 72%,
+      #111a30 100%
+    );
+
+  color: #dbe6ff;
+
+  border: 0;
+  border-right: 1px solid #34466e;
+
+  cursor: pointer;
+
+  box-shadow:
+    inset 0 -3px 0 #0a1020,
+    inset 3px 0 6px #ffffff0a;
+
+  transition:
+    filter .06s ease,
+    transform .06s ease;
+}
+
+.piano-white-key:last-child {
+  border-right: 0;
+}
+
+.piano-white-key:hover {
+  filter: brightness(1.025);
+}
+
+.piano-white-key.active {
+  transform: translateY(3px);
+
+  background:
+    linear-gradient(
+      to bottom,
+      #32466f 0%,
+      #223252 75%,
+      #172541 100%
+    );
+
+  box-shadow:
+    inset 0 -1px 0 #111a30,
+    inset 0 0 15px #a78bfa33;
+}
+
+.piano-note-name {
+  font-family: Georgia, serif;
+  font-size: 25px;
+  line-height: 1;
+}
+
+.piano-shortcut {
+  margin-top: 7px;
+
+  color: #9fb0d4;
+
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+}
+
+.piano-black-key {
+  position: absolute;
+  z-index: 3;
+
+  top: 0;
+
+  width: 8.5%;
+  height: 53%;
+
+  padding: 0;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+
+  background:
+    linear-gradient(
+      90deg,
+      #202b47 0%,
+      #0c1324 52%,
+      #202b47 100%
+    );
+
+  color: #dbe6ff;
+
+  border: 0;
+  border-radius: 0 0 7px 7px;
+
+  box-shadow:
+    0 5px 7px #000a,
+    inset 2px 0 3px #ffffff12,
+    inset -2px 0 3px #000a;
+
+  cursor: pointer;
+
+  transition:
+    filter .06s ease,
+    transform .06s ease;
+}
+
+.piano-black-key:hover {
+  filter: brightness(1.15);
+}
+
+.piano-black-key.active {
+  transform: translateY(3px);
+
+  background:
+    linear-gradient(
+      90deg,
+      #33456e 0%,
+      #121b31 52%,
+      #33456e 100%
+    );
+
+  box-shadow:
+    0 2px 4px #000a,
+    inset 0 0 9px #a78bfa44;
+}
+
+.piano-black-name {
+  font-family: Georgia, serif;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.piano-black-shortcut {
+  margin-top: 7px;
+
+  color: #9fb0d4;
+
+  font-family: "DM Mono", monospace;
+  font-size: 9px;
+}
+
+.piano-help {
+  padding: 8px 20px 16px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  flex-wrap: wrap;
+
+  color: var(--text-muted);
+
+  font-size: 10px;
+}
+
+.piano-help kbd,
+.piano-header kbd {
+  display: inline-block;
+
+  padding: 2px 6px;
+
+  background: #18233e;
+  color: #dbe6ff;
+
+  border: 1px solid #34466e;
+  border-radius: 4px;
+
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+}
+
+#pianoStatus {
+  color: var(--purple);
+}
+
+
+/* ============================================================
+   17. PIANO RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 850px) {
+
+  .piano-header {
+    align-items: stretch;
+  }
+
+  .piano-octave-controls {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .piano-keyboard {
+    margin-left: 15px;
+    margin-right: 15px;
+
+    min-height: 230px;
+
+    overflow-x: auto;
+  }
+
+  .piano-white-key {
+    min-width: 72px;
+  }
+}
+
+
+@media (max-width: 560px) {
+
+  .piano-header {
+    padding: 14px;
+  }
+
+  .piano-octave-controls {
+    gap: 6px;
+  }
+
+  .piano-octave-controls button {
+    padding: 8px 9px;
+    font-size: 9px;
+  }
+
+  .octave-display {
+    min-width: 110px;
+    padding: 11px 8px;
+    font-size: 12px;
+  }
+
+  .piano-keyboard {
+    min-height: 210px;
+    margin: 12px 8px 8px;
+
+    overflow-x: auto;
+  }
+
+  .piano-white-key {
+    min-width: 62px;
+    padding-bottom: 18px;
+  }
+
+  .piano-note-name {
+    font-size: 20px;
+  }
+
+  .piano-shortcut {
+    font-size: 8px;
+  }
+
+  .piano-black-key {
+    width: 9%;
+  }
+
+  .piano-black-name {
+    font-size: 12px;
+  }
+
+  .piano-help {
+    gap: 8px 14px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+}
+
+
+
+
+/* Keep the single numeric shortcut centered under each white key. */
+.piano-shortcut {
+  margin-top: 8px;
+  color: #9fb0d4;
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+}
+
+.field-help {
+  display: block;
+  margin-top: 8px;
+  margin-bottom: 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
