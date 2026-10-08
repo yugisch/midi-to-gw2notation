@@ -124,11 +124,11 @@
           <span class="symbol chord">/</span>
           <span>Chord — notes played together</span>
 
-          <span class="symbol">.</span>
-          <span>Quarter dot (+25%)</span>
-
           <span class="symbol">·</span>
           <span>Dotted note (+50%)</span>
+
+          <span class="symbol">.</span>
+          <span>Quarter dot (+25%)</span>
 
           <span class="symbol">·.</span>
           <span>Double dotted (+75%)</span>
@@ -167,6 +167,18 @@
       <div class="output-header">
         <h2><span>♫</span> MIDI notation output</h2>
         <div id="status" class="status">Waiting for a MIDI file</div>
+      </div>
+
+      <div class="global-player" aria-label="All tracks playback controls">
+        <div class="global-player-copy">
+          <strong>All tracks</strong>
+          <span id="globalPlaybackStatus">Ready</span>
+        </div>
+        <div class="global-player-buttons">
+          <button id="playAllButton" type="button" disabled>▶ Play All</button>
+          <button id="pauseAllButton" type="button" disabled>⏸ Pause All</button>
+          <button id="stopAllButton" type="button" disabled>■ Stop All</button>
+        </div>
       </div>
 
       <div id="channels" class="channels">

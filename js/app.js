@@ -88,6 +88,10 @@ const elements = {
   status: document.getElementById("status"),
 
   channels: document.getElementById("channels"),
+  playAllButton: document.getElementById("playAllButton"),
+  pauseAllButton: document.getElementById("pauseAllButton"),
+  stopAllButton: document.getElementById("stopAllButton"),
+  globalPlaybackStatus: document.getElementById("globalPlaybackStatus"),
 
   copyButton: document.getElementById("copyButton"),
   downloadButton: document.getElementById("downloadButton")
@@ -153,6 +157,9 @@ function loadMidiFile(file) {
 
 
 elements.clearFile.addEventListener("click", () => {
+
+  stopAllTrackPlayers(true);
+  setGlobalPlaybackUI("stopped");
 
   midiFile = null;
 
@@ -520,6 +527,62 @@ function findBestTranspose(tracks) {
 }
 
 
+function detectPlaybackInstrument(track, index = 0) {
+  /* Prefer the displayed/fallback track name over conflicting program metadata. */
+  const displayedName = track.name || DEFAULT_TRACK_NAMES[index] || `Track ${index + 1}`;
+  const trackName = String(displayedName).toLowerCase();
+  const instrumentSource = [track.instrument?.name, track.instrument?.family]
+    .filter(Boolean).join(" ").toLowerCase();
+
+  const meaningfulTrackName = trackName &&
+    !/^track\s*\d+$/i.test(trackName) &&
+    !/^channel\s*\d+$/i.test(trackName) &&
+    !/^(harmony|melody|part\s*[a-z0-9]+)$/i.test(trackName);
+
+  const nameSource = meaningfulTrackName ? trackName : instrumentSource;
+
+  if (/piano|grand piano|upright piano|electric piano|keys|keyboard/.test(nameSource)) return "piano";
+  if (/lute|oud|mandolin/.test(nameSource)) return "lute";
+  if (/harp/.test(nameSource)) return "harp";
+  if (/violin|viola|cello|contrabass|string|orchestra/.test(nameSource)) return "strings";
+  if (/trumpet|trombone|horn|brass|tuba/.test(nameSource)) return "brass";
+  if (/flute|piccolo|recorder|pan pipe|whistle/.test(nameSource)) return "flute";
+  if (/guitar/.test(nameSource)) return "guitar";
+  if (/bass/.test(nameSource)) return "bass";
+  if (/organ|church|reed organ/.test(nameSource)) return "organ";
+  if (/choir|voice|vocal|vocoder/.test(nameSource)) return "choir";
+  if (/synth|lead|pad|fx|effect/.test(nameSource)) return "synth";
+
+  /* Fall back to the zero-based General MIDI program number. */
+  const number = Number(track.instrument?.number);
+  if (Number.isFinite(number)) {
+    if (number >= 0 && number <= 7) return "piano";
+    if (number >= 24 && number <= 31) return "guitar";
+    if (number >= 32 && number <= 39) return "bass";
+    if (number >= 40 && number <= 51) return number === 46 ? "harp" : "strings";
+    if (number >= 56 && number <= 63) return "brass";
+    if (number >= 73 && number <= 79) return "flute";
+    if (number >= 88 && number <= 95) return "synth";
+    if (number >= 96 && number <= 103) return "synth";
+  }
+
+  return "piano";
+}
+
+const PLAYBACK_INSTRUMENT_LABELS = {
+  piano: "Piano",
+  strings: "Strings",
+  brass: "Brass",
+  flute: "Flute",
+  guitar: "Guitar",
+  lute: "Lute",
+  harp: "Harp",
+  bass: "Bass",
+  organ: "Organ",
+  choir: "Choir",
+  synth: "Synth"
+};
+
 function convertTrack(
   track,
   index,
@@ -637,9 +700,13 @@ function convertTrack(
       });
     }
 
-    const tokens = cells.map(cell => {
+    const tokens = cells.map((cell, slotIndex) => {
+      const slotStartBeat = beatIndex + (slotIndex * effectiveGrid);
+      const slotDuration = effectiveGrid;
+
       if (!cell.length) {
-        return effectiveGrid === 1 ? "━" : "-";
+        const pause = effectiveGrid === 1 ? "━" : "-";
+        return `<span class="playback-beat playback-empty" data-start-beat="${slotStartBeat.toFixed(6)}" data-duration-beats="${slotDuration.toFixed(6)}">${pause}</span>`;
       }
 
       const uniqueNotes = [...new Set(cell.map(note => note.midi))].sort((a, b) => a - b);
@@ -656,10 +723,10 @@ function convertTrack(
       else if (durationBeats >= 1.5) token += "·";
       else if (durationBeats >= 1.25) token += ".";
 
-      return token;
+      return `<span class="playback-beat playback-note" data-start-beat="${slotStartBeat.toFixed(6)}" data-duration-beats="${Math.max(slotDuration, durationBeats).toFixed(6)}">${token}</span>`;
     });
 
-    beats.push(tokens.join(""));
+    beats.push(`<span class="playback-beat-group" data-beat-index="${beatIndex}">${tokens.join("")}</span>`);
   }
 
   const lines = [];
@@ -686,6 +753,13 @@ function convertTrack(
     html: lines.join("<br>"),
     noteCount: notes.length,
     color: CHANNEL_COLORS[(track.channel ?? index) % CHANNEL_COLORS.length],
+    playbackInstrument: detectPlaybackInstrument(track, index),
+    playbackInstrumentLabel: PLAYBACK_INSTRUMENT_LABELS[detectPlaybackInstrument(track, index)] || "Piano",
+    playbackNotes: events.map(event => ({
+      midi: event.midi,
+      startBeat: event.startTick / ppq,
+      durationBeats: Math.max(0.01, event.durationTicks / ppq)
+    })),
     effectiveGrid: Math.min(...effectiveGrids),
     requestedGrid: beatGrid,
     transpose
@@ -701,21 +775,32 @@ function renderChannels() {
 
   elements.channels.innerHTML =
     conversionResults
-      .map(track => {
+      .map((track, index) => {
 
         return `
-          <div class="channel">
+          <div class="channel" data-track-index="${index}">
 
             <div
               class="channel-meta"
               style="--channel-color: ${track.color}"
             >
-              <div class="channel-name">
-                ${escapeHtml(track.name)}
+              <div class="channel-heading">
+                <div class="channel-accent"></div>
+                <div>
+                  <div class="channel-name">
+                    ${escapeHtml(track.name)}
+                  </div>
+
+                  <div class="channel-info">
+                    ${track.noteCount} notes · ${escapeHtml(track.playbackInstrumentLabel)}
+                  </div>
+                </div>
               </div>
 
-              <div class="channel-info">
-                ${track.noteCount} notes
+              <div class="track-player" data-player-index="${index}">
+                <button type="button" class="track-play" title="Play this track">▶ Play</button>
+                <button type="button" class="track-pause" title="Pause this track">⏸ Pause</button>
+                <button type="button" class="track-stop" title="Stop this track">■ Stop</button>
               </div>
             </div>
 
@@ -727,6 +812,380 @@ function renderChannels() {
       })
       .join("");
 
+  setupTrackPlayers();
+  setGlobalPlaybackUI("stopped");
+  setGlobalPlaybackEnabled(true);
+
+}
+
+
+
+function clearPlaybackHighlights() {
+  document.querySelectorAll(".playback-active, .playback-current-beat").forEach(el => {
+    el.classList.remove("playback-active", "playback-current-beat");
+  });
+}
+
+function updatePlaybackHighlights(positionSeconds) {
+  const tempoBpm = Number(elements.tempo?.value) || 120;
+  const positionBeat = positionSeconds / (60 / tempoBpm);
+
+  document.querySelectorAll(".playback-beat").forEach(el => {
+    const start = Number(el.dataset.startBeat);
+    const duration = Number(el.dataset.durationBeats) || 0;
+    const active = positionBeat >= start - 0.015 && positionBeat < start + duration;
+    el.classList.toggle("playback-active", active);
+  });
+
+  document.querySelectorAll(".playback-beat-group").forEach(el => {
+    const index = Number(el.dataset.beatIndex);
+    const active = positionBeat >= index && positionBeat < index + 1;
+    el.classList.toggle("playback-current-beat", active);
+  });
+}
+
+let playbackHighlightFrame = null;
+function startPlaybackHighlightLoop() {
+  if (playbackHighlightFrame !== null) return;
+  const tick = () => {
+    const activeState = globalPlaybackState.status === "playing"
+      ? globalPlaybackState
+      : [...trackPlayers.values()].find(state => state.status === "playing");
+
+    if (activeState) {
+      const elapsed = Math.max(0, performance.now() / 1000 - activeState.startedAt);
+      updatePlaybackHighlights(elapsed);
+      playbackHighlightFrame = requestAnimationFrame(tick);
+    } else {
+      clearPlaybackHighlights();
+      playbackHighlightFrame = null;
+    }
+  };
+  playbackHighlightFrame = requestAnimationFrame(tick);
+}
+
+/* ============================================================
+   8B. TRACK AUDIO PLAYBACK
+   ============================================================ */
+
+const trackPlayers = new Map();
+let playbackAudioContext = null;
+
+function getPlaybackAudioContext() {
+  if (!playbackAudioContext) {
+    playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return playbackAudioContext;
+}
+
+function midiToFrequency(midi) {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+function instrumentVoiceConfig(type) {
+  const configs = {
+    piano:  { wave: "triangle", attack: 0.008, release: 0.45, filter: 2600, gain: 0.20 },
+    strings:{ wave: "sawtooth", attack: 0.16, release: 0.65, filter: 1800, gain: 0.10 },
+    brass:  { wave: "sawtooth", attack: 0.07, release: 0.35, filter: 1400, gain: 0.12 },
+    flute:  { wave: "sine", attack: 0.10, release: 0.35, filter: 3000, gain: 0.16 },
+    guitar: { wave: "triangle", attack: 0.006, release: 0.30, filter: 2200, gain: 0.18 },
+    lute:   { wave: "triangle", attack: 0.004, release: 0.24, filter: 2600, gain: 0.17 },
+    harp:   { wave: "sine", attack: 0.003, release: 0.55, filter: 3200, gain: 0.16 },
+    bass:   { wave: "triangle", attack: 0.012, release: 0.42, filter: 900, gain: 0.22 },
+    organ:  { wave: "sine", attack: 0.03, release: 0.30, filter: 2400, gain: 0.13 },
+    choir:  { wave: "sine", attack: 0.22, release: 0.75, filter: 1600, gain: 0.10 },
+    synth:  { wave: "square", attack: 0.025, release: 0.35, filter: 1900, gain: 0.08 }
+  };
+  return configs[type] || configs.piano;
+}
+
+function stopVoice(voice, ctx, release = 0.06) {
+  if (!voice) return;
+  const now = ctx.currentTime;
+  try {
+    voice.gain.gain.cancelScheduledValues(now);
+    voice.gain.gain.setValueAtTime(Math.max(0.0001, voice.gain.gain.value), now);
+    voice.gain.gain.exponentialRampToValueAtTime(0.0001, now + release);
+    voice.osc.stop(now + release + 0.02);
+  } catch (_) {}
+}
+
+function createTrackVoice(track, note, when, duration) {
+  const ctx = getPlaybackAudioContext();
+  const config = instrumentVoiceConfig(track.playbackInstrument);
+  const osc = ctx.createOscillator();
+  const filter = ctx.createBiquadFilter();
+  const gain = ctx.createGain();
+  const frequency = midiToFrequency(note.midi);
+
+  osc.type = config.wave;
+  osc.frequency.setValueAtTime(frequency, when);
+
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(config.filter, when);
+  filter.Q.value = track.playbackInstrument === "synth" ? 2.5 : 0.7;
+
+  gain.gain.setValueAtTime(0.0001, when);
+  gain.gain.exponentialRampToValueAtTime(config.gain, when + config.attack);
+  gain.gain.setValueAtTime(config.gain * 0.72, when + config.attack + Math.min(0.08, duration * 0.15));
+  gain.gain.exponentialRampToValueAtTime(0.0001, when + Math.max(config.attack + 0.03, duration) + config.release);
+
+  osc.connect(filter);
+  filter.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(when);
+  osc.stop(when + Math.max(config.attack + 0.03, duration) + config.release + 0.04);
+
+  return { osc, gain };
+}
+
+function createTrackPlayer(index) {
+  const track = conversionResults[index];
+  if (!track) return null;
+
+  const state = {
+    index,
+    track,
+    status: "stopped",
+    startedAt: 0,
+    pausedAt: 0,
+    timerIds: [],
+    voices: new Set(),
+    duration: track.playbackNotes.reduce(
+      (max, note) => Math.max(max, note.startBeat + note.durationBeats), 0
+    )
+  };
+
+  return state;
+}
+
+function clearPlayerTimers(state) {
+  state.timerIds.forEach(id => clearTimeout(id));
+  state.timerIds = [];
+}
+
+function stopTrackPlayer(index, reset = true) {
+  const state = trackPlayers.get(index);
+  if (!state) return;
+  const ctx = getPlaybackAudioContext();
+  clearPlayerTimers(state);
+  state.voices.forEach(voice => stopVoice(voice, ctx));
+  state.voices.clear();
+  state.status = "stopped";
+  state.pausedAt = reset ? 0 : state.pausedAt;
+  clearPlaybackHighlights();
+  updateTrackPlayerUI(index);
+}
+
+function scheduleTrackFrom(index, offsetSeconds, sharedStartWall = null) {
+  const state = trackPlayers.get(index);
+  if (!state) return;
+  const ctx = getPlaybackAudioContext();
+  clearPlayerTimers(state);
+
+  const tempoBpm = Number(elements.tempo?.value) || 120;
+  const secondsPerBeat = 60 / tempoBpm;
+  const startWall = sharedStartWall ?? (performance.now() / 1000 - offsetSeconds);
+  state.startedAt = startWall - offsetSeconds;
+  state.status = "playing";
+
+  state.track.playbackNotes.forEach(note => {
+    const noteStart = note.startBeat * secondsPerBeat;
+    const noteEnd = noteStart + note.durationBeats * secondsPerBeat;
+    if (noteEnd <= offsetSeconds) return;
+
+    const delay = Math.max(0, (noteStart - offsetSeconds) * 1000);
+    const timer = setTimeout(() => {
+      if (state.status !== "playing") return;
+      const actualOffset = Math.max(0, offsetSeconds - noteStart);
+      const remaining = Math.max(0.025, note.durationBeats * secondsPerBeat - actualOffset);
+      const voice = createTrackVoice(state.track, note, ctx.currentTime, remaining);
+      state.voices.add(voice);
+      setTimeout(() => state.voices.delete(voice), (remaining + 1.2) * 1000);
+    }, delay);
+    state.timerIds.push(timer);
+  });
+
+  const remainingSong = Math.max(0, state.duration - offsetSeconds);
+  state.timerIds.push(setTimeout(() => {
+    if (state.status === "playing") stopTrackPlayer(index, true);
+  }, remainingSong * 1000 + 100));
+
+  updateTrackPlayerUI(index);
+  startPlaybackHighlightLoop();
+}
+
+function playTrackPlayer(index) {
+  const state = trackPlayers.get(index) || createTrackPlayer(index);
+  if (!state) return;
+  trackPlayers.set(index, state);
+  const ctx = getPlaybackAudioContext();
+  if (ctx.state === "suspended") ctx.resume();
+  if (state.status === "playing") return;
+  scheduleTrackFrom(index, state.status === "paused" ? state.pausedAt : 0);
+}
+
+function pauseTrackPlayer(index) {
+  const state = trackPlayers.get(index);
+  if (!state || state.status !== "playing") return;
+  const elapsed = Math.max(0, performance.now() / 1000 - state.startedAt);
+  state.pausedAt = Math.min(state.duration, elapsed);
+  clearPlayerTimers(state);
+  const ctx = getPlaybackAudioContext();
+  state.voices.forEach(voice => stopVoice(voice, ctx, 0.05));
+  state.voices.clear();
+  state.status = "paused";
+  updateTrackPlayerUI(index);
+}
+
+function updateTrackPlayerUI(index) {
+  const root = elements.channels.querySelector(`[data-player-index="${index}"]`);
+  if (!root) return;
+  const state = trackPlayers.get(index);
+  root.classList.toggle("is-playing", state?.status === "playing");
+  root.querySelector(".track-play").textContent = state?.status === "paused" ? "▶ Resume" : "▶ Play";
+}
+
+function getAllTrackDuration() {
+  return conversionResults.reduce(
+    (max, track) =>
+      Math.max(
+        max,
+        track.playbackNotes.reduce(
+          (trackMax, note) => Math.max(trackMax, note.startBeat + note.durationBeats),
+          0
+        )
+      ),
+    0
+  );
+}
+
+function setGlobalPlaybackEnabled(enabled) {
+  if (!elements.playAllButton) return;
+  elements.playAllButton.disabled = !enabled;
+  elements.pauseAllButton.disabled = !enabled;
+  elements.stopAllButton.disabled = !enabled;
+}
+
+function setGlobalPlaybackUI(status) {
+  if (!elements.globalPlaybackStatus) return;
+
+  const labels = {
+    stopped: "Ready",
+    playing: "Playing all tracks",
+    paused: "Paused"
+  };
+  elements.globalPlaybackStatus.textContent = labels[status] || "Ready";
+
+  elements.playAllButton?.classList.toggle("is-active", status === "playing");
+  elements.pauseAllButton?.classList.toggle("is-active", status === "paused");
+}
+
+function stopAllTrackPlayers(reset = true) {
+  trackPlayers.forEach((state, index) => stopTrackPlayer(index, reset));
+  if (reset) {
+    globalPlaybackState.status = "stopped";
+    globalPlaybackState.pausedAt = 0;
+  }
+  setGlobalPlaybackUI(globalPlaybackState.status);
+}
+
+const globalPlaybackState = {
+  status: "stopped",
+  startedAt: 0,
+  pausedAt: 0,
+  duration: 0,
+  timerId: null
+};
+
+function clearGlobalPlaybackTimer() {
+  if (globalPlaybackState.timerId !== null) {
+    clearTimeout(globalPlaybackState.timerId);
+    globalPlaybackState.timerId = null;
+  }
+}
+
+function playAllTrackPlayers() {
+  if (!conversionResults.length) return;
+
+  const ctx = getPlaybackAudioContext();
+  if (ctx.state === "suspended") ctx.resume();
+
+  const offsetSeconds = globalPlaybackState.status === "paused"
+    ? globalPlaybackState.pausedAt
+    : 0;
+
+  trackPlayers.forEach((state, index) => {
+    stopTrackPlayer(index, false);
+    state.pausedAt = offsetSeconds;
+  });
+
+  clearGlobalPlaybackTimer();
+
+  const sharedStartWall = performance.now() / 1000 - offsetSeconds;
+  globalPlaybackState.startedAt = sharedStartWall;
+  globalPlaybackState.duration = getAllTrackDuration();
+  globalPlaybackState.pausedAt = offsetSeconds;
+  globalPlaybackState.status = "playing";
+
+  conversionResults.forEach((_, index) => {
+    if (!trackPlayers.has(index)) {
+      const state = createTrackPlayer(index);
+      if (state) trackPlayers.set(index, state);
+    }
+    scheduleTrackFrom(index, offsetSeconds, sharedStartWall);
+  });
+
+  const remaining = Math.max(0, globalPlaybackState.duration - offsetSeconds);
+  globalPlaybackState.timerId = setTimeout(() => {
+    if (globalPlaybackState.status === "playing") {
+      globalPlaybackState.status = "stopped";
+      globalPlaybackState.pausedAt = 0;
+      stopAllTrackPlayers(true);
+    }
+  }, remaining * 1000 + 150);
+
+  setGlobalPlaybackUI("playing");
+  startPlaybackHighlightLoop();
+}
+
+function pauseAllTrackPlayers() {
+  if (globalPlaybackState.status !== "playing") return;
+
+  const elapsed = Math.max(0, performance.now() / 1000 - globalPlaybackState.startedAt);
+  globalPlaybackState.pausedAt = Math.min(globalPlaybackState.duration, elapsed);
+  globalPlaybackState.status = "paused";
+  clearGlobalPlaybackTimer();
+
+  trackPlayers.forEach((state, index) => {
+    if (state.status === "playing") pauseTrackPlayer(index);
+  });
+
+  setGlobalPlaybackUI("paused");
+}
+
+elements.playAllButton?.addEventListener("click", playAllTrackPlayers);
+elements.pauseAllButton?.addEventListener("click", pauseAllTrackPlayers);
+elements.stopAllButton?.addEventListener("click", () => {
+  clearGlobalPlaybackTimer();
+  stopAllTrackPlayers(true);
+});
+
+function setupTrackPlayers() {
+  clearGlobalPlaybackTimer();
+  trackPlayers.forEach((state, index) => stopTrackPlayer(index));
+  trackPlayers.clear();
+  globalPlaybackState.status = "stopped";
+  globalPlaybackState.startedAt = 0;
+  globalPlaybackState.pausedAt = 0;
+  globalPlaybackState.duration = 0;
+
+  elements.channels.querySelectorAll("[data-player-index]").forEach(player => {
+    const index = Number(player.dataset.playerIndex);
+    player.querySelector(".track-play").addEventListener("click", () => playTrackPlayer(index));
+    player.querySelector(".track-pause").addEventListener("click", () => pauseTrackPlayer(index));
+    player.querySelector(".track-stop").addEventListener("click", () => stopTrackPlayer(index, true));
+  });
 }
 
 
@@ -820,6 +1279,16 @@ elements.downloadButton.addEventListener(
    ============================================================ */
 
 function showEmptyState() {
+
+  clearGlobalPlaybackTimer();
+  trackPlayers.forEach((state, index) => stopTrackPlayer(index));
+  trackPlayers.clear();
+  globalPlaybackState.status = "stopped";
+  globalPlaybackState.startedAt = 0;
+  globalPlaybackState.pausedAt = 0;
+  globalPlaybackState.duration = 0;
+  setGlobalPlaybackEnabled(false);
+  setGlobalPlaybackUI("stopped");
 
   elements.channels.innerHTML = `
     <div class="empty-state">

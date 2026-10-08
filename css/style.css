@@ -481,6 +481,74 @@ select:focus {
 
 
 /* ============================================================
+   GLOBAL TRACK PLAYER
+   ============================================================ */
+
+.global-player {
+  margin: 12px 14px 2px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  border: 1px solid #25385f;
+  border-radius: 10px;
+  background: #0c1730;
+}
+
+.global-player-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.global-player-copy strong {
+  color: #dbe6ff;
+  font-size: 12px;
+}
+
+.global-player-copy span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.global-player-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.global-player button {
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid #34466e;
+  border-radius: 7px;
+  background: #141e35;
+  color: #cbd7f4;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease, opacity .15s ease;
+}
+
+.global-player button:hover:not(:disabled) {
+  background: #1d2945;
+  border-color: #526a9e;
+}
+
+.global-player button:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+}
+
+.global-player button.is-active {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+/* ============================================================
    12. CHANNEL OUTPUT
    ============================================================ */
 
@@ -493,31 +561,33 @@ select:focus {
 }
 
 .channel {
-  display: grid;
-  grid-template-columns: 115px minmax(0, 1fr);
-  gap: 12px;
+  display: block;
 }
 
 .channel-meta {
+  min-height: 54px;
   padding: 8px 10px;
-
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
   position: relative;
 }
 
-.channel-meta::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 6px;
-  bottom: 6px;
-  width: 4px;
+.channel-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.channel-accent {
+  flex: 0 0 5px;
+  width: 5px;
+  height: 42px;
   border-radius: 999px;
-  background: var(--channel-color);
-  box-shadow: 0 0 10px var(--channel-color);
+  background: var(--channel-color, #5eead4);
+  box-shadow: 0 0 10px var(--channel-color, #5eead4);
 }
 
 .channel-name {
@@ -718,6 +788,76 @@ select:focus {
 /* ============================================================
    16. PLAYABLE GW2 PIANO
    ============================================================ */
+
+
+/* ============================================================
+   TRACK PLAYERS
+   ============================================================ */
+
+.channel-meta {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.channel-accent {
+  flex: 0 0 5px;
+  width: 5px;
+  min-height: 62px;
+  margin-top: 2px;
+  border-radius: 999px;
+  background: var(--channel-color, #5eead4);
+  box-shadow: 0 0 12px var(--channel-color, #5eead4);
+}
+
+.channel-heading {
+  min-width: 0;
+  flex: 1;
+}
+
+.track-player {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.track-player button {
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid #34466e;
+  border-radius: 7px;
+  background: #141e35;
+  color: #cbd7f4;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+
+.track-player button:hover {
+  background: #1d2945;
+  border-color: #526a9e;
+}
+
+.track-player.is-playing .track-play {
+  border-color: var(--channel-color, #5eead4);
+  color: var(--channel-color, #5eead4);
+}
+
+@media (max-width: 640px) {
+  .channel-meta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .track-player {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
 
 .piano-panel {
   overflow: hidden;
@@ -1160,4 +1300,38 @@ select:focus {
 .beat-grid-help {
   margin-top: 5px;
   margin-bottom: 14px;
+}
+
+/* ============================================================
+   PLAYBACK NOTE / BEAT HIGHLIGHTING
+   ============================================================ */
+
+.playback-beat-group {
+  border-radius: 5px;
+  transition: background .06s ease, box-shadow .06s ease;
+}
+
+.playback-beat-group.playback-current-beat {
+  background: rgba(94, 234, 212, 0.055);
+  box-shadow: inset 0 -1px 0 rgba(94, 234, 212, 0.20);
+}
+
+.playback-beat {
+  display: inline-block;
+  border-radius: 4px;
+  transition: background .05s ease, color .05s ease, text-shadow .05s ease, box-shadow .05s ease;
+}
+
+.playback-beat.playback-active {
+  color: #ffffff !important;
+  background: rgba(251, 191, 36, 0.24);
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.45), 0 0 2px rgba(255, 255, 255, 0.55) inset;
+  text-shadow: 0 0 8px rgba(251, 191, 36, 0.95);
+}
+
+.playback-empty.playback-active {
+  color: var(--text-muted) !important;
+  background: rgba(94, 234, 212, 0.10);
+  box-shadow: 0 0 8px rgba(94, 234, 212, 0.20);
+  text-shadow: 0 0 6px rgba(94, 234, 212, 0.55);
 }
