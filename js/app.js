@@ -79,6 +79,7 @@ const elements = {
   tempo: document.getElementById("tempo"),
   outputFormat: document.getElementById("outputFormat"),
   beatGrid: document.getElementById("beatGrid"),
+  preserveFastNotes: document.getElementById("preserveFastNotes"),
   transposeMode: document.getElementById("transposeMode"),
 
   convertButton: document.getElementById("convertButton"),
@@ -258,7 +259,8 @@ async function convertMidi() {
             track,
             index,
             elements.beatGrid.value,
-            transpose
+            transpose,
+            elements.preserveFastNotes.checked
           )
         )
         .filter(Boolean);
@@ -522,304 +524,170 @@ function convertTrack(
   track,
   index,
   beatGrid,
-  transpose = 0
+  transpose = 0,
+  preserveFastNotes = true
 ) {
 
   if (!track.notes.length) {
     return null;
   }
 
-  const requestedGrid = Number(beatGrid);
   const ppq = Number(track.ppq) || 480;
   const notes = track.notes;
-
-  /*
-   * IMPORTANT RHYTHM RULE
-   * ---------------------
-   * Beat Grid is now a MINIMUM resolution, not a destructive
-   * quantizer. If several notes occur inside one selected grid
-   * cell, the converter automatically subdivides that cell so
-   * those notes are not merged or lost.
-   *
-   * Example:
-   *   Whole beat selected + C-D-E-F inside one beat
-   *
-   * Old behaviour:
-   *   C/D/E/F     <- collisions / lost timing
-   *
-   * New behaviour:
-   *   C D E F     <- adaptive subdivision
-   *
-   * We use MIDI ticks rather than seconds, so the result is
-   * independent of tempo/BPM.
-   */
-
-  const subdivisionLevels = [
-    1,
-    0.5,
-    0.25,
-    0.125,
-    0.0625
-  ];
-
-  /*
-   * Convert Tone.js notes to tick-based events. Older versions
-   * of @tonejs/midi expose ticks/durationTicks; if those are not
-   * available, fall back to the time/duration values using the
-   * MIDI PPQ and tempo.
-   */
-  const tempoBpm =
-    Number(elements.tempo?.value) || 120;
-
-  const secondsPerBeat =
-    60 / tempoBpm;
+  const requestedGrid = beatGrid === "auto" ? 1 : Number(beatGrid);
+  const tempoBpm = Number(elements.tempo?.value) || 120;
+  const secondsPerBeat = 60 / tempoBpm;
 
   const toTicks = note => {
-    if (Number.isFinite(note.ticks)) {
-      return note.ticks;
-    }
-
-    return Math.round(
-      (note.time / secondsPerBeat) * ppq
-    );
+    if (Number.isFinite(note.ticks)) return note.ticks;
+    return Math.round((note.time / secondsPerBeat) * ppq);
   };
 
   const toDurationTicks = note => {
-    if (Number.isFinite(note.durationTicks)) {
-      return note.durationTicks;
-    }
-
-    return Math.max(
-      1,
-      Math.round(
-        (note.duration / secondsPerBeat) * ppq
-      )
-    );
+    if (Number.isFinite(note.durationTicks)) return note.durationTicks;
+    return Math.max(1, Math.round((note.duration / secondsPerBeat) * ppq));
   };
 
-  const events = notes.map(note => ({
-    midi: note.midi + transpose,
-    startTick: toTicks(note),
-    durationTicks: toDurationTicks(note),
-    endTick:
-      toTicks(note) + toDurationTicks(note)
-  })).sort((a, b) =>
-    a.startTick - b.startTick ||
-    a.midi - b.midi
+  const events = notes.map(note => {
+    const startTick = toTicks(note);
+    const durationTicks = toDurationTicks(note);
+    return {
+      midi: note.midi + transpose,
+      startTick,
+      durationTicks,
+      endTick: startTick + durationTicks
+    };
+  }).sort((a, b) =>
+    a.startTick - b.startTick || a.midi - b.midi
   );
 
-  const beatTicks = ppq;
-  const requestedGridTicks =
-    Math.max(1, Math.round(beatTicks * requestedGrid));
-
-  const songEnd = Math.max(
-    ...events.map(event => event.endTick)
-  );
+  const songEnd = Math.max(...events.map(event => event.endTick));
+  const beatCount = Math.max(1, Math.ceil(songEnd / ppq));
+  const maxSubdivision = 0.0625;
+  const subdivisionLevels = [1, 0.5, 0.25, 0.125, 0.0625];
 
   /*
-   * Find the smallest onset spacing that actually occurs inside
-   * the MIDI. This tells us how much finer the requested grid
-   * needs to become.
+   * Beat Grid now controls the maximum resolution of each beat.
+   * With "Preserve fast notes" enabled, we only subdivide a beat
+   * when that beat actually contains faster onsets. This avoids
+   * turning the entire song into a fine grid just because one
+   * passage contains quick notes.
+   *
+   * Auto is equivalent to a one-beat base grid with preservation
+   * enabled, so it keeps the MIDI's natural rhythm without asking
+   * the user to guess a resolution.
    */
-  let minimumOnsetSpacing = Infinity;
+  const chooseLocalGrid = beatEvents => {
+    if (beatGrid === "auto") return chooseAdaptiveGrid(beatEvents, ppq, 1);
+    if (!preserveFastNotes) return requestedGrid;
+    return chooseAdaptiveGrid(beatEvents, ppq, requestedGrid);
+  };
 
-  for (let i = 1; i < events.length; i++) {
-    const previous = events[i - 1];
-    const current = events[i];
+  const chooseAdaptiveGrid = (beatEvents, beatTicks, baseGrid) => {
+    if (beatEvents.length < 2) return baseGrid;
 
-    if (current.startTick > previous.startTick) {
-      minimumOnsetSpacing = Math.min(
-        minimumOnsetSpacing,
-        current.startTick - previous.startTick
+    const starts = [...new Set(beatEvents.map(event => event.startTick))].sort((a, b) => a - b);
+    if (starts.length < 2) return baseGrid;
+
+    let minimumSpacingBeats = Infinity;
+    for (let i = 1; i < starts.length; i++) {
+      minimumSpacingBeats = Math.min(
+        minimumSpacingBeats,
+        (starts[i] - starts[i - 1]) / beatTicks
       );
     }
-  }
 
-  let effectiveGrid = requestedGrid;
-
-  if (Number.isFinite(minimumOnsetSpacing)) {
-    const minimumSpacingBeats =
-      minimumOnsetSpacing / beatTicks;
-
-    /*
-     * Automatically descend through musical subdivisions until
-     * one is fine enough to represent the fastest onset spacing.
-     */
     for (const subdivision of subdivisionLevels) {
       if (
-        subdivision <= requestedGrid &&
+        subdivision <= baseGrid &&
         subdivision <= minimumSpacingBeats + 1e-9
       ) {
-        effectiveGrid = subdivision;
-        break;
+        return subdivision;
       }
     }
-  }
 
-  const gridTicks = Math.max(
-    1,
-    Math.round(beatTicks * effectiveGrid)
-  );
-
-  const totalSlots = Math.max(
-    1,
-    Math.ceil(songEnd / gridTicks)
-  );
-
-  const cells = Array.from(
-    { length: totalSlots },
-    () => []
-  );
-
-  /*
-   * Put each note into its own onset cell. Notes beginning at
-   * the same musical position remain together and therefore form
-   * a chord. Different onset positions can never overwrite each
-   * other anymore.
-   */
-  events.forEach(event => {
-    const slot = Math.max(
-      0,
-      Math.min(
-        totalSlots - 1,
-        Math.round(event.startTick / gridTicks)
-      )
-    );
-
-    cells[slot].push({
-      midi: event.midi,
-      duration:
-        event.durationTicks / gridTicks
-    });
-  });
-
-  const tokens = [];
-
-  for (let slot = 0; slot < cells.length; slot++) {
-    const cell = cells[slot];
-
-    if (cell.length === 0) {
-      tokens.push(
-        effectiveGrid === 1 ? "━" : "-"
-      );
-      continue;
-    }
-
-    const uniqueNotes = [
-      ...new Set(cell.map(note => note.midi))
-    ].sort((a, b) => a - b);
-
-    let token = uniqueNotes
-      .map(noteToHtml)
-      .join(
-        '<span class="accidental">/</span>'
-      );
-
-    if (uniqueNotes.length > 1) {
-      token =
-        `<span class="chord">${token}</span>`;
-    }
-
-    /*
-     * Duration markers are based on the actual MIDI duration,
-     * rather than the selected grid. We only add a marker when
-     * the duration crosses the corresponding musical threshold.
-     */
-    const durationBeats = Math.max(
-      ...cell.map(note =>
-        note.duration * effectiveGrid
-      )
-    );
-
-    if (durationBeats >= 1.75) {
-      token += "·.";
-    }
-    else if (durationBeats >= 1.5) {
-      token += "·";
-    }
-    else if (durationBeats >= 1.25) {
-      token += ".";
-    }
-
-    tokens.push(token);
-  }
-
-  /*
-   * Group the adaptive slots back into musical beats.
-   * A beat can now contain more tokens than the originally
-   * selected Beat Grid if the MIDI requires it.
-   */
-  const slotsPerBeat = Math.max(
-    1,
-    Math.round(1 / effectiveGrid)
-  );
+    return maxSubdivision;
+  };
 
   const beats = [];
+  const effectiveGrids = [];
 
-  for (
-    let beatStart = 0;
-    beatStart < tokens.length;
-    beatStart += slotsPerBeat
-  ) {
-    beats.push(
-      tokens
-        .slice(
-          beatStart,
-          beatStart + slotsPerBeat
-        )
-        .join("")
+  for (let beatIndex = 0; beatIndex < beatCount; beatIndex++) {
+    const beatStart = beatIndex * ppq;
+    const beatEnd = beatStart + ppq;
+    const beatEvents = events.filter(event =>
+      event.startTick >= beatStart && event.startTick < beatEnd
     );
+
+    const effectiveGrid = chooseLocalGrid(beatEvents);
+    effectiveGrids.push(effectiveGrid);
+    const gridTicks = Math.max(1, Math.round(ppq * effectiveGrid));
+    const slotsPerBeat = Math.max(1, Math.round(ppq / gridTicks));
+    const cells = Array.from({ length: slotsPerBeat }, () => []);
+
+    for (const event of beatEvents) {
+      const relativeTick = event.startTick - beatStart;
+      const slot = Math.max(
+        0,
+        Math.min(slotsPerBeat - 1, Math.round(relativeTick / gridTicks))
+      );
+      cells[slot].push({
+        midi: event.midi,
+        durationBeats: event.durationTicks / ppq
+      });
+    }
+
+    const tokens = cells.map(cell => {
+      if (!cell.length) {
+        return effectiveGrid === 1 ? "━" : "-";
+      }
+
+      const uniqueNotes = [...new Set(cell.map(note => note.midi))].sort((a, b) => a - b);
+      let token = uniqueNotes
+        .map(noteToHtml)
+        .join('<span class="accidental">/</span>');
+
+      if (uniqueNotes.length > 1) {
+        token = `<span class="chord">${token}</span>`;
+      }
+
+      const durationBeats = Math.max(...cell.map(note => note.durationBeats));
+      if (durationBeats >= 1.75) token += "·.";
+      else if (durationBeats >= 1.5) token += "·";
+      else if (durationBeats >= 1.25) token += ".";
+
+      return token;
+    });
+
+    beats.push(tokens.join(""));
   }
 
   const lines = [];
-
-  for (
-    let lineStart = 0;
-    lineStart < beats.length;
-    lineStart += 12
-  ) {
-    const lineBeats = beats.slice(
-      lineStart,
-      lineStart + 12
-    );
-
+  for (let lineStart = 0; lineStart < beats.length; lineStart += 12) {
+    const lineBeats = beats.slice(lineStart, lineStart + 12);
     let line = "";
 
     lineBeats.forEach((beat, localBeatIndex) => {
       if (localBeatIndex > 0) {
-        if (localBeatIndex % 4 === 0) {
-          line += '<span class="bar"> | </span>';
-        }
-        else if (localBeatIndex % 2 === 0) {
-          line += "  ";
-        }
-        else {
-          line += " ";
-        }
+        if (localBeatIndex % 4 === 0) line += '<span class="bar"> | </span>';
+        else if (localBeatIndex % 2 === 0) line += "  ";
+        else line += " ";
       }
-
       line += beat;
     });
 
     lines.push(line);
   }
 
-  const html = lines.join("<br>");
-
-  const channel =
-    track.channel ?? index;
-
   return {
     index,
-    channel,
-    name:
-      track.name ||
-      DEFAULT_TRACK_NAMES[index] ||
-      `Track ${index + 1}`,
-    html,
+    channel: track.channel ?? index,
+    name: track.name || DEFAULT_TRACK_NAMES[index] || `Track ${index + 1}`,
+    html: lines.join("<br>"),
     noteCount: notes.length,
-    effectiveGrid,
-    requestedGrid,
+    color: CHANNEL_COLORS[(track.channel ?? index) % CHANNEL_COLORS.length],
+    effectiveGrid: Math.min(...effectiveGrids),
+    requestedGrid: beatGrid,
     transpose
   };
 }
@@ -843,12 +711,11 @@ function renderChannels() {
               style="--channel-color: ${track.color}"
             >
               <div class="channel-name">
-                Channel ${track.channel + 1}
+                ${escapeHtml(track.name)}
               </div>
 
               <div class="channel-info">
-                ${escapeHtml(track.name)}
-                · ${track.noteCount} notes
+                ${track.noteCount} notes
               </div>
             </div>
 
@@ -871,7 +738,7 @@ function getAllPlainText() {
 
   return conversionResults
     .map(track =>
-      `CHANNEL ${track.channel + 1} — ${track.name}\n` +
+      `${track.name}\n` +
       track.plain
     )
     .join("\n\n");

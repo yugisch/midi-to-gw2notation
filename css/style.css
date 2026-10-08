@@ -494,7 +494,7 @@ select:focus {
 
 .channel {
   display: grid;
-  grid-template-columns: 125px minmax(0, 1fr);
+  grid-template-columns: 115px minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -505,7 +505,19 @@ select:focus {
   flex-direction: column;
   justify-content: center;
 
-  border-left: 3px solid var(--channel-color);
+  position: relative;
+}
+
+.channel-meta::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 4px;
+  border-radius: 999px;
+  background: var(--channel-color);
+  box-shadow: 0 0 10px var(--channel-color);
 }
 
 .channel-name {
@@ -1123,4 +1135,29 @@ select:focus {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.5;
+}
+
+/* Beat-grid controls */
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  margin-bottom: 0;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.check-row input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--purple);
+  cursor: pointer;
+}
+
+.beat-grid-help {
+  margin-top: 5px;
+  margin-bottom: 14px;
 }

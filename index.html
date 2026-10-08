@@ -75,11 +75,17 @@
 
         <label for="beatGrid">Beat grid</label>
         <select id="beatGrid">
-          <option value="0.25">Quarter-beat</option>
-          <option value="0.5">Half-beat</option>
-          <option value="0.125">Eighth-beat</option>
+          <option value="auto" selected>Auto — preserve the MIDI rhythm</option>
           <option value="1">Whole beat</option>
+          <option value="0.5">Half-beat</option>
+          <option value="0.25">Quarter-beat</option>
+          <option value="0.125">Eighth-beat</option>
         </select>
+        <label class="check-row" for="preserveFastNotes">
+          <input id="preserveFastNotes" type="checkbox" checked>
+          <span>Preserve fast notes</span>
+        </label>
+        <small class="field-help beat-grid-help">When enabled, only beats that need finer timing are subdivided. Turn it off to strictly quantize to the selected grid.</small>
 
         <label for="transposeMode">Key optimization</label>
         <select id="transposeMode">
@@ -118,11 +124,11 @@
           <span class="symbol chord">/</span>
           <span>Chord — notes played together</span>
 
-          <span class="symbol">·</span>
-          <span>Dotted note (+50%)</span>
-
           <span class="symbol">.</span>
           <span>Quarter dot (+25%)</span>
+
+          <span class="symbol">·</span>
+          <span>Dotted note (+50%)</span>
 
           <span class="symbol">·.</span>
           <span>Double dotted (+75%)</span>
