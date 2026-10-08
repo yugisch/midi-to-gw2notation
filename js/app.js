@@ -826,18 +826,23 @@ function clearPlaybackHighlights() {
   });
 }
 
-function updatePlaybackHighlights(positionSeconds) {
+function updatePlaybackHighlights(positionSeconds, trackIndex = null) {
   const tempoBpm = Number(elements.tempo?.value) || 120;
   const positionBeat = positionSeconds / (60 / tempoBpm);
+  const scope = trackIndex === null
+    ? elements.channels
+    : elements.channels.querySelector(`[data-track-index="${trackIndex}"]`);
 
-  document.querySelectorAll(".playback-beat").forEach(el => {
+  if (!scope) return;
+
+  scope.querySelectorAll(".playback-beat").forEach(el => {
     const start = Number(el.dataset.startBeat);
     const duration = Number(el.dataset.durationBeats) || 0;
     const active = positionBeat >= start - 0.015 && positionBeat < start + duration;
     el.classList.toggle("playback-active", active);
   });
 
-  document.querySelectorAll(".playback-beat-group").forEach(el => {
+  scope.querySelectorAll(".playback-beat-group").forEach(el => {
     const index = Number(el.dataset.beatIndex);
     const active = positionBeat >= index && positionBeat < index + 1;
     el.classList.toggle("playback-current-beat", active);
@@ -848,16 +853,24 @@ let playbackHighlightFrame = null;
 function startPlaybackHighlightLoop() {
   if (playbackHighlightFrame !== null) return;
   const tick = () => {
-    const activeState = globalPlaybackState.status === "playing"
-      ? globalPlaybackState
-      : [...trackPlayers.values()].find(state => state.status === "playing");
+    clearPlaybackHighlights();
 
-    if (activeState) {
-      const elapsed = Math.max(0, performance.now() / 1000 - activeState.startedAt);
+    if (globalPlaybackState.status === "playing") {
+      const elapsed = Math.max(0, performance.now() / 1000 - globalPlaybackState.startedAt);
       updatePlaybackHighlights(elapsed);
       playbackHighlightFrame = requestAnimationFrame(tick);
+      return;
+    }
+
+    const playingStates = [...trackPlayers.values()].filter(state => state.status === "playing");
+    if (playingStates.length) {
+      const now = performance.now() / 1000;
+      playingStates.forEach(state => {
+        const elapsed = Math.max(0, now - state.startedAt);
+        updatePlaybackHighlights(elapsed, state.index);
+      });
+      playbackHighlightFrame = requestAnimationFrame(tick);
     } else {
-      clearPlaybackHighlights();
       playbackHighlightFrame = null;
     }
   };

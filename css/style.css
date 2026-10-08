@@ -552,12 +552,27 @@ select:focus {
    12. CHANNEL OUTPUT
    ============================================================ */
 
+/* Keep the output area visually aligned with the sidebar. Long MIDI
+   scores scroll inside the output instead of making the whole page huge. */
+.output-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .channels {
   padding: 14px;
 
   display: flex;
   flex-direction: column;
   gap: 10px;
+
+  /* The sidebar reference panel determines the natural page height on
+     desktop; this prevents a long score from pushing the page endlessly. */
+  max-height: 620px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .channel {
@@ -781,6 +796,8 @@ select:focus {
 
   .channels {
     padding: 9px;
+    max-height: none;
+    overflow-y: visible;
   }
 }
 
