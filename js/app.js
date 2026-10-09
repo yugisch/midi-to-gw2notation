@@ -505,10 +505,12 @@ function findBestTranspose(tracks) {
       }
     }
 
-    // Staying playable is far more important than removing one extra sharp.
+    // Prefer a key with fewer accidentals first, then keep notes in the
+    // playable span, then prefer the smallest transposition. This prevents
+    // the optimizer from keeping lots of sharps just to save one out-of-range note.
     const score =
-      outOfRange * 1000 +
-      accidentals * 10 +
+      accidentals * 10000 +
+      outOfRange * 100 +
       Math.abs(transpose) * 0.01;
 
     const candidate = {
@@ -751,6 +753,11 @@ function convertTrack(
     channel: track.channel ?? index,
     name: track.name || DEFAULT_TRACK_NAMES[index] || `Track ${index + 1}`,
     html: lines.join("<br>"),
+    // Plain-text version used by Copy All and Download TXT.
+    // Keep the same notation and separators, but remove playback/UI markup.
+    plain: lines
+      .map(line => line.replace(/<[^>]*>/g, ""))
+      .join("\n"),
     noteCount: notes.length,
     color: CHANNEL_COLORS[(track.channel ?? index) % CHANNEL_COLORS.length],
     playbackInstrument: detectPlaybackInstrument(track, index),
@@ -1271,12 +1278,9 @@ elements.downloadButton.addEventListener(
     link.href = url;
 
     link.download =
-      (
-        midiFile?.name
-          .replace(/\.midi?$/i, "") ||
-        "gw2-notation"
-      ) +
-      ".txt";
+      ((midiFile && midiFile.name)
+        ? midiFile.name.replace(/\.midi?$/i, "")
+        : "gw2-notation") + ".txt";
 
 
     link.click();
