@@ -815,8 +815,9 @@ function setupTrackInstrumentSelectors() {
       if (state) {
         state.track = track;
         // Stop any currently ringing notes so the change is immediately audible.
+        const shift = state.trackShift || 0;
         state.voices.forEach(voice => {
-          if (voice?.soundFont) soundFontNoteOff(voice.channel, voice.midi);
+          if (voice?.soundFont) soundFontNoteOff(voice.channel, voice.midi, null, shift);
         });
         state.voices.clear();
         soundFontAllNotesOff(soundFontChannelForTrack(index));
@@ -1103,8 +1104,16 @@ async function ensureSoundFontReady() {
       if (ctx.state === "suspended") await ctx.resume();
 
       const synth = new window.JSSynth.Synthesizer();
-      synth.init(ctx.sampleRate);
-      // FluidSynth default master gain is ~0.2 (very quiet). Raise it.
+      // Higher polyphony so dense tracks / chords don't drop notes (default is often 256, but
+      // some builds are lower). initialGain raises the quiet FluidSynth default (~0.2).
+      try {
+        synth.init(ctx.sampleRate, {
+          polyphony: 256,
+          initialGain: soundFontEngine.masterGain
+        });
+      } catch (_) {
+        synth.init(ctx.sampleRate);
+      }
       try {
         if (typeof synth.setGain === "function") {
           synth.setGain(soundFontEngine.masterGain);
@@ -1151,44 +1160,181 @@ const SOUND_FONT_PROGRAMS = {
   piano: 0, strings: 48, brass: 56, flute: 73, guitar: 24,
   lute: 24, harp: 46, bass: 32, organ: 19, choir: 52, synth: 80
 };
-function soundFontChannelForTrack(index) { return index % 9; }
-function prepareSoundFontChannel(channel, track) {
-  if (!soundFontEngine.synth || soundFontEngine.soundFontId < 0) return;
+
+/*
+ * Actual sample key ranges in assets/gw2Instruments.sf2 (from SF2 zone data).
+ * Notes outside these ranges are silent in FluidSynth — fold them into range
+ * by octaves so high/low GW2 notes still produce sound.
+ */
+const SOUND_FONT_KEY_RANGES = {
+  0: [48, 84],   // Minstrel
+  1: [48, 84],   // Piano
+  8: [60, 84],   // Bell
+  14: [60, 84],  // Bell (Legacy) — same samples family
+  15: [50, 86],  // Choir Bell (Legacy)
+  19: [48, 83],  // Pipe Organ
+  24: [48, 84],  // Lute
+  33: [36, 60],  // Bass
+  46: [48, 84],  // Harp
+  56: [52, 88],  // Horn
+  58: [24, 60],  // Verdarach
+  73: [64, 88],  // Flute
+  112: [50, 86], // Choir Bell
+  114: [60, 67]  // Drums
+};
+const DEFAULT_KEY_RANGE = [48, 84];
+
+/** program last selected per MIDI channel (for range folding) */
+const channelProgram = new Map();
+/** stacked note counts so overlapping same-pitch notes don't cut each other early */
+const channelNoteCounts = new Map();
+
+function noteCountKey(channel, midi) {
+  return `${channel}:${midi}`;
+}
+
+function resolveSoundFontProgram(track) {
   const selectedProgram = Number(track?.selectedSoundFontProgram);
   const instrumentNumber = Number(track?.instrumentNumber);
-  const program = Number.isInteger(selectedProgram) && selectedProgram >= 0 && selectedProgram <= 127
-    ? selectedProgram
-    : (Number.isInteger(instrumentNumber) && instrumentNumber >= 0 && instrumentNumber <= 127
-      ? instrumentNumber : (SOUND_FONT_PROGRAMS[track?.playbackInstrument] ?? 1));
+  if (Number.isInteger(selectedProgram) && selectedProgram >= 0 && selectedProgram <= 127) {
+    return selectedProgram;
+  }
+  if (Number.isInteger(instrumentNumber) && instrumentNumber >= 0 && instrumentNumber <= 127) {
+    return instrumentNumber;
+  }
+  return SOUND_FONT_PROGRAMS[track?.playbackInstrument] ?? 1;
+}
+
+/**
+ * Last-resort: map a single MIDI note into the preset sample range.
+ * Prefer computeTrackOctaveShift + a uniform shift so melodies stay intact.
+ */
+function foldMidiToPresetRange(midi, program) {
+  const range = SOUND_FONT_KEY_RANGES[program] || DEFAULT_KEY_RANGE;
+  const [lo, hi] = range;
+  let m = midi | 0;
+  if (m >= lo && m <= hi) return m;
+  while (m < lo) m += 12;
+  while (m > hi) m -= 12;
+  if (m < lo) m = lo;
+  if (m > hi) m = hi;
+  return m;
+}
+
+/**
+ * Compute one whole-track octave shift so the phrase fits the SoundFont range.
+ *
+ * Logic (matches "shift the entire octave", not per-note):
+ * 1. If everything already fits → 0
+ * 2. If the highest notes are above the range → shift the whole track down
+ *    by whole octaves until the top fits
+ * 3. If the lowest notes are then below the range → shift up by whole octaves
+ * 4. If the phrase is wider than the instrument can cover → center it on the
+ *    playable window (still whole octaves); individual outliers still fold
+ *
+ * Using ±12 only keeps intervals and chord voicings sounding natural.
+ */
+function computeTrackOctaveShift(midiNotes, program) {
+  if (!midiNotes || !midiNotes.length) return 0;
+
+  const [lo, hi] = SOUND_FONT_KEY_RANGES[program] || DEFAULT_KEY_RANGE;
+  const minN = Math.min(...midiNotes);
+  const maxN = Math.max(...midiNotes);
+
+  if (minN >= lo && maxN <= hi) return 0;
+
+  let shift = 0;
+
+  // Bring unplayable high notes down first (common for high-octave tracks)
+  while (maxN + shift > hi) shift -= 12;
+
+  // Then lift anything that fell under the floor
+  while (minN + shift < lo) shift += 12;
+
+  // Phrase wider than the instrument range: center on the playable window
+  if (maxN + shift > hi || minN + shift < lo) {
+    const phraseMid = (minN + maxN) / 2;
+    const rangeMid = (lo + hi) / 2;
+    shift = Math.round((rangeMid - phraseMid) / 12) * 12;
+  }
+
+  return shift;
+}
+
+/** Apply uniform track shift, then a safety fold for any remaining outliers. */
+function mapMidiForPlayback(midi, program, trackShift = 0) {
+  return foldMidiToPresetRange((midi | 0) + trackShift, program);
+}
+
+// Tracks use channels 0–14; piano uses 15 so they never fight.
+function soundFontChannelForTrack(index) { return index % 15; }
+
+function prepareSoundFontChannel(channel, track) {
+  if (!soundFontEngine.synth || soundFontEngine.soundFontId < 0) return;
+  const program = resolveSoundFontProgram(track);
   try {
     // midiProgramSelect binds this channel to the requested preset in our
     // bundled SoundFont. Do not follow it with midiProgramChange: that can
     // override the SoundFont-specific selection with the default bank preset.
+    // IMPORTANT: only call this when the instrument actually changes — calling
+    // it on every note-on can cut other sounding notes on the same channel.
     soundFontEngine.synth.midiProgramSelect(channel, soundFontEngine.soundFontId, 0, program);
-    // Channel volume (CC7) and expression (CC11) at full so presets aren't quiet
     soundFontEngine.synth.midiCC(channel, 7, 127);
     soundFontEngine.synth.midiCC(channel, 11, 127);
+    channelProgram.set(channel, program);
   } catch (e) {
     console.warn("SoundFont program selection failed", { channel, program, error: e });
   }
 }
-function soundFontNoteOn(channel, midi, velocity = 112) {
-  if (!soundFontEngine.synth || soundFontEngine.status !== "ready") return false;
+
+/**
+ * Start a note. `midi` should already include any whole-track octave shift
+ * when playing a track (see scheduleTrackFrom). Returns the actual MIDI sent
+ * to the synth, or null on failure.
+ */
+function soundFontNoteOn(channel, midi, velocity = 112, programHint = null, trackShift = 0) {
+  if (!soundFontEngine.synth || soundFontEngine.status !== "ready") return null;
   try {
+    const program = programHint ?? channelProgram.get(channel) ?? 1;
+    const playMidi = mapMidiForPlayback(midi, program, trackShift);
     const vel = Math.max(1, Math.min(127, velocity | 0));
-    soundFontEngine.synth.midiNoteOn(channel, midi, vel);
+    const key = noteCountKey(channel, playMidi);
+    const count = (channelNoteCounts.get(key) || 0) + 1;
+    channelNoteCounts.set(key, count);
+    // Re-trigger if already sounding so repeated notes are audible
+    if (count > 1) {
+      try { soundFontEngine.synth.midiNoteOff(channel, playMidi); } catch (_) {}
+    }
+    soundFontEngine.synth.midiNoteOn(channel, playMidi, vel);
     soundFontEngine.channelsInUse.add(channel);
-    return true;
+    return playMidi;
   } catch (_) {
-    return false;
+    return null;
   }
 }
-function soundFontNoteOff(channel, midi) {
+
+function soundFontNoteOff(channel, midi, programHint = null, trackShift = 0) {
   if (!soundFontEngine.synth || soundFontEngine.status !== "ready") return;
-  try { soundFontEngine.synth.midiNoteOff(channel, midi); } catch (_) {}
+  try {
+    const program = programHint ?? channelProgram.get(channel) ?? 1;
+    const playMidi = mapMidiForPlayback(midi, program, trackShift);
+    const key = noteCountKey(channel, playMidi);
+    const count = (channelNoteCounts.get(key) || 0) - 1;
+    if (count <= 0) {
+      channelNoteCounts.delete(key);
+      soundFontEngine.synth.midiNoteOff(channel, playMidi);
+    } else {
+      channelNoteCounts.set(key, count);
+    }
+  } catch (_) {}
 }
+
 function soundFontAllNotesOff(channel) {
   if (!soundFontEngine.synth || soundFontEngine.status !== "ready") return;
+  // Clear stacked counts for this channel
+  for (const key of [...channelNoteCounts.keys()]) {
+    if (key.startsWith(`${channel}:`)) channelNoteCounts.delete(key);
+  }
   try { soundFontEngine.synth.midiCC(channel, 123, 0); } catch (_) {
     try { soundFontEngine.synth.midiAllSoundsOff(channel); } catch (_) {}
   }
@@ -1198,17 +1344,21 @@ function createTrackPlayer(index) {
   const track = conversionResults[index];
   if (!track) return null;
 
+  const durationBeats = track.playbackNotes.reduce(
+    (max, note) => Math.max(max, note.startBeat + note.durationBeats), 0
+  );
+
   const state = {
     index,
     track,
     status: "stopped",
     startedAt: 0,
-    pausedAt: 0,
+    pausedAt: 0, // seconds
     timerIds: [],
     voices: new Set(),
-    duration: track.playbackNotes.reduce(
-      (max, note) => Math.max(max, note.startBeat + note.durationBeats), 0
-    )
+    durationBeats,
+    // keep `duration` as beats for any older call sites; prefer durationBeats
+    duration: durationBeats
   };
 
   return state;
@@ -1223,8 +1373,9 @@ function stopTrackPlayer(index, reset = true) {
   const state = trackPlayers.get(index);
   if (!state) return;
   clearPlayerTimers(state);
+  const shift = state.trackShift || 0;
   state.voices.forEach(voice => {
-    if (voice?.soundFont) soundFontNoteOff(voice.channel, voice.midi);
+    if (voice?.soundFont) soundFontNoteOff(voice.channel, voice.midi, null, shift);
   });
   soundFontAllNotesOff(soundFontChannelForTrack(index));
   state.voices.clear();
@@ -1249,10 +1400,19 @@ async function scheduleTrackFrom(index, offsetSeconds, sharedStartWall = null) {
     }
     return;
   }
-  prepareSoundFontChannel(soundFontChannelForTrack(index), state.track);
 
   const tempoBpm = Number(elements.tempo?.value) || 120;
   const secondsPerBeat = 60 / tempoBpm;
+  const channel = soundFontChannelForTrack(index);
+  // Program select once per schedule — not on every note (that was cutting notes).
+  prepareSoundFontChannel(channel, state.track);
+
+  // One uniform octave shift for the whole track so intervals stay natural.
+  const program = resolveSoundFontProgram(state.track);
+  const midis = (state.track.playbackNotes || []).map(n => n.midi);
+  const trackShift = computeTrackOctaveShift(midis, program);
+  state.trackShift = trackShift;
+
   const startWall = sharedStartWall ?? (performance.now() / 1000 - offsetSeconds);
   state.startedAt = startWall - offsetSeconds;
   state.status = "playing";
@@ -1265,23 +1425,28 @@ async function scheduleTrackFrom(index, offsetSeconds, sharedStartWall = null) {
     const delay = Math.max(0, (noteStart - offsetSeconds) * 1000);
     const timer = setTimeout(() => {
       if (state.status !== "playing") return;
-      const actualOffset = Math.max(0, offsetSeconds - noteStart);
-      const remaining = Math.max(0.025, note.durationBeats * secondsPerBeat - actualOffset);
       if (soundFontEngine.status !== "ready") return;
-      const channel = soundFontChannelForTrack(index);
-      prepareSoundFontChannel(channel, state.track);
-      if (!soundFontNoteOn(channel, note.midi, 115)) return;
-      const voice = { soundFont: true, channel, midi: note.midi };
+
+      // Correct for timer drift: compute remaining from wall clock
+      const elapsed = Math.max(0, performance.now() / 1000 - state.startedAt);
+      if (elapsed >= noteEnd) return; // note already finished — skip
+      const remaining = Math.max(0.03, noteEnd - elapsed);
+
+      const playMidi = soundFontNoteOn(channel, note.midi, 115, program, trackShift);
+      if (playMidi == null) return;
+      const voice = { soundFont: true, channel, midi: note.midi, playMidi, trackShift };
       state.voices.add(voice);
-      setTimeout(() => {
-        soundFontNoteOff(channel, note.midi);
+      const offTimer = setTimeout(() => {
+        soundFontNoteOff(channel, note.midi, program, trackShift);
         state.voices.delete(voice);
       }, remaining * 1000);
+      state.timerIds.push(offTimer);
     }, delay);
     state.timerIds.push(timer);
   });
 
-  const remainingSong = Math.max(0, state.duration - offsetSeconds);
+  const durationSeconds = (state.durationBeats ?? state.duration ?? 0) * secondsPerBeat;
+  const remainingSong = Math.max(0, durationSeconds - offsetSeconds);
   state.timerIds.push(setTimeout(() => {
     if (state.status === "playing") stopTrackPlayer(index, true);
   }, remainingSong * 1000 + 100));
@@ -1303,11 +1468,15 @@ function playTrackPlayer(index) {
 function pauseTrackPlayer(index) {
   const state = trackPlayers.get(index);
   if (!state || state.status !== "playing") return;
+  const tempoBpm = Number(elements.tempo?.value) || 120;
+  const secondsPerBeat = 60 / tempoBpm;
+  const durationSeconds = (state.durationBeats ?? state.duration ?? 0) * secondsPerBeat;
   const elapsed = Math.max(0, performance.now() / 1000 - state.startedAt);
-  state.pausedAt = Math.min(state.duration, elapsed);
+  state.pausedAt = Math.min(durationSeconds, elapsed);
   clearPlayerTimers(state);
+  const shift = state.trackShift || 0;
   state.voices.forEach(voice => {
-    if (voice?.soundFont) soundFontNoteOff(voice.channel, voice.midi);
+    if (voice?.soundFont) soundFontNoteOff(voice.channel, voice.midi, null, shift);
   });
   soundFontAllNotesOff(soundFontChannelForTrack(index));
   state.voices.clear();
@@ -1399,9 +1568,12 @@ function playAllTrackPlayers() {
 
   clearGlobalPlaybackTimer();
 
+  const tempoBpm = Number(elements.tempo?.value) || 120;
+  const secondsPerBeat = 60 / tempoBpm;
   const sharedStartWall = performance.now() / 1000 - offsetSeconds;
   globalPlaybackState.startedAt = sharedStartWall;
-  globalPlaybackState.duration = getAllTrackDuration();
+  // getAllTrackDuration() returns beats — convert to seconds for timers
+  globalPlaybackState.duration = getAllTrackDuration() * secondsPerBeat;
   globalPlaybackState.pausedAt = offsetSeconds;
   globalPlaybackState.status = "playing";
 
@@ -2011,65 +2183,72 @@ function midiToFrequency(midiNote) {
 
 
 function startPianoNote(semitone, buttonElement) {
-  const midiNote = getPianoMidi(semitone);
-  if (piano.activeNotes.has(midiNote)) return;
+  // Key by semitone (key position), not absolute MIDI, so octave changes
+  // don't break release tracking for held notes.
+  if (piano.activeNotes.has(semitone)) return;
 
+  const midiNote = getPianoMidi(semitone);
   if (buttonElement) buttonElement.classList.add("active");
   const noteName = getPianoNoteLabel(semitone);
   pianoElements.status.textContent = `Loading SoundFont · ${noteName}`;
 
   // The piano uses the same bundled SoundFont as MIDI tracks. No oscillator
   // fallback is created, so the selected preset is always the actual sound.
-  const pendingVoice = { soundFont: false, pending: true, midi: midiNote, button: buttonElement };
-  piano.activeNotes.set(midiNote, pendingVoice);
+  const pendingVoice = {
+    soundFont: false,
+    pending: true,
+    midi: midiNote,
+    semitone,
+    button: buttonElement
+  };
+  piano.activeNotes.set(semitone, pendingVoice);
   ensureSoundFontReady().then(ready => {
     if (!ready) {
-      if (piano.activeNotes.get(midiNote) === pendingVoice) piano.activeNotes.delete(midiNote);
+      if (piano.activeNotes.get(semitone) === pendingVoice) piano.activeNotes.delete(semitone);
       if (buttonElement) buttonElement.classList.remove("active");
       pianoElements.status.textContent = soundFontEngine.lastError
         ? `SoundFont failed: ${soundFontEngine.lastError}`
         : "SoundFont failed to load. Check assets/gw2Instruments.sf2 and the browser console.";
       return;
     }
-    if (piano.activeNotes.get(midiNote) !== pendingVoice) return;
+    // Cancelled (released) or replaced while loading
+    if (piano.activeNotes.get(semitone) !== pendingVoice) return;
     const channel = 15;
-    prepareSoundFontChannel(channel, { playbackInstrument: "piano", selectedSoundFontProgram: piano.selectedSoundFontProgram });
-    if (!soundFontNoteOn(channel, midiNote, 120)) {
-      piano.activeNotes.delete(midiNote);
+    prepareSoundFontChannel(channel, {
+      playbackInstrument: "piano",
+      selectedSoundFontProgram: piano.selectedSoundFontProgram
+    });
+    const playMidi = soundFontNoteOn(channel, midiNote, 120);
+    if (playMidi == null) {
+      piano.activeNotes.delete(semitone);
       if (buttonElement) buttonElement.classList.remove("active");
       pianoElements.status.textContent = "SoundFont could not play this note.";
       return;
     }
-    piano.activeNotes.set(midiNote, { soundFont: true, channel, midi: midiNote, button: buttonElement });
-    pianoElements.status.textContent = `Playing ${noteName} · MIDI ${midiNote}`;
+    piano.activeNotes.set(semitone, {
+      soundFont: true,
+      channel,
+      midi: midiNote,
+      playMidi,
+      semitone,
+      button: buttonElement
+    });
+    const folded = playMidi !== midiNote ? ` → ${playMidi}` : "";
+    pianoElements.status.textContent = `Playing ${noteName} · MIDI ${midiNote}${folded}`;
   });
 }
 
 /*
- * Stop one piano note with a natural sustained release.
- * The note continues fading after the key is released.
+ * Stop one piano note. Uses the MIDI stored when the note started so
+ * release still works after an octave change.
  */
-function stopPianoNote(
-  semitone
-) {
-
-  const midiNote =
-    getPianoMidi(semitone);
-
-  const voice =
-    piano.activeNotes.get(
-      midiNote
-    );
-
-  if (!voice) {
-    return;
-  }
-
+function stopPianoNote(semitone) {
+  const voice = piano.activeNotes.get(semitone);
+  if (!voice) return;
 
   if (voice.soundFont) soundFontNoteOff(voice.channel, voice.midi);
   if (voice.button) voice.button.classList.remove("active");
-  piano.activeNotes.delete(midiNote);
-
+  piano.activeNotes.delete(semitone);
 }
 
 
@@ -2117,43 +2296,19 @@ function getPianoNoteLabel(
 /*
  * Change octave by -1 / +1.
  */
-function changePianoOctave(
-  direction
-) {
+function changePianoOctave(direction) {
+  const current = piano.octaveIndex[piano.currentOctave];
+  const next = Math.max(0, Math.min(2, current + direction));
+  const names = ["low", "mid", "high"];
+  const nextName = names[next];
 
-  const current =
-    piano.octaveIndex[
-      piano.currentOctave
-    ];
+  if (nextName === piano.currentOctave) return;
 
-  const next =
-    Math.max(
-      0,
-      Math.min(
-        2,
-        current + direction
-      )
-    );
+  piano.currentOctave = nextName;
 
-
-  /*
-   * Convert index back into the named octave.
-   */
-  const names = [
-    "low",
-    "mid",
-    "high"
-  ];
-
-
-  piano.currentOctave =
-    names[next];
-
-
-  stopAllPianoNotes();
-
+  // Keep currently held notes sounding at their original pitch until release.
+  // Do not call stopAllPianoNotes() — that was cutting the note on octave change.
   updatePianoOctaveUI();
-
 }
 
 
@@ -2189,7 +2344,7 @@ function updatePianoOctaveUI() {
 
 
   pianoElements.display.textContent =
-    `OCTAVE: ${name}`;
+    String(name || "mid").toUpperCase();
 
 
   pianoElements.status.textContent =

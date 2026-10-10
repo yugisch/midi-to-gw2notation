@@ -75,7 +75,6 @@ This allows you to use a simpler grid for normal songs while still preserving fa
 The generated notation follows Powerina's GW2 notation: 
 https://gw2-songbook.com/song/568 
 
-
 ## How to run
 
 **Recommended (HTTP server):** from this folder run:

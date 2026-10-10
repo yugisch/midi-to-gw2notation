@@ -219,43 +219,22 @@
       <section class="panel piano-panel">
 
         <div class="piano-header">
-          <div>
-            <h2><span>♩</span> Playable Piano (inspired by Sarya)</h2>
-            <p>
-              Use <kbd>1</kbd>–<kbd>8</kbd> or for white keys,
-              and <kbd>F1</kbd>–<kbd>F6</kbd> for sharps.
-              Press <kbd>9</kbd> / <kbd>0</kbd> to change octave.
-            </p>
+          <div class="piano-title-block">
+            <h2><span>♩</span> Playable Piano (Inspired by Sarya)</h2>
+            <p class="piano-subtitle"> <kbd>1</kbd>–<kbd>8</kbd> white keys· <kbd>F1</kbd>–<kbd>F6</kbd> sharps · <kbd>9</kbd>/<kbd>0</kbd> to change octave · <kbd>Space</kbd> stop current note</p>
           </div>
 
-          <div class="piano-octave-controls">
-            <button
-              type="button"
-              id="octaveDown"
-              title="Lower octave"
-            >
-              ‹ &nbsp; [ 9 ] &nbsp; Oct −
-            </button>
-
-            <div
-              class="octave-display"
-              id="pianoOctaveDisplay"
-              aria-live="polite"
-            >
-              OCTAVE: MID
+          <div class="piano-toolbar">
+            <div class="piano-octave-controls" role="group" aria-label="Octave">
+              <button type="button" id="octaveDown" class="piano-icon-btn" title="Lower octave (9)" aria-label="Lower octave">‹</button>
+              <div class="octave-display" id="pianoOctaveDisplay" aria-live="polite">MID</div>
+              <button type="button" id="octaveUp" class="piano-icon-btn" title="Higher octave (0)" aria-label="Higher octave">›</button>
             </div>
 
-            <button
-              type="button"
-              id="octaveUp"
-              title="Higher octave"
-            >
-              Oct + &nbsp; [ 0 ] &nbsp; ›
-            </button>
+            <label class="piano-instrument-picker" title="Instrument">
+              <select id="pianoInstrumentSelect" aria-label="Choose instrument"></select>
+            </label>
           </div>
-          <label class="instrument-picker piano-instrument-picker">Play with
-            <select id="pianoInstrumentSelect" aria-label="Choose virtual piano instrument"></select>
-          </label>
         </div>
 
         <div
@@ -267,20 +246,7 @@
         </div>
 
         <div class="piano-help">
-          <span>
-            <kbd>9</kbd> Lower octave
-          </span>
-          <span>
-            <kbd>0</kbd> Higher octave
-          </span>
-          <span>
-            <kbd>Space</kbd> stops the current note
-          </span>
-
-
-          <span id="pianoStatus">
-            Ready · C4–C5
-          </span>
+          <span id="pianoStatus">Ready · C4–C5</span>
         </div>
 
       </section>
