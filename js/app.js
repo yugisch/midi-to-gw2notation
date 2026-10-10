@@ -761,7 +761,9 @@ function convertTrack(
     noteCount: notes.length,
     color: CHANNEL_COLORS[(track.channel ?? index) % CHANNEL_COLORS.length],
     playbackInstrument: detectPlaybackInstrument(track, index),
+    instrumentNumber: Number.isInteger(track.instrument?.number) ? track.instrument.number : null,
     playbackInstrumentLabel: PLAYBACK_INSTRUMENT_LABELS[detectPlaybackInstrument(track, index)] || "Piano",
+    selectedSoundFontProgram: getDefaultSoundFontProgram({ playbackInstrument: detectPlaybackInstrument(track, index) }),
     playbackNotes: events.map(event => ({
       midi: event.midi,
       startBeat: event.startTick / ppq,
@@ -777,6 +779,60 @@ function convertTrack(
 /* ============================================================
    8. OUTPUT RENDERING
    ============================================================ */
+
+const SOUND_FONT_PRESETS = [
+  { name: "Minstrel", bank: 0, program: 0 },
+  { name: "Piano", bank: 0, program: 1 },
+  { name: "Bell", bank: 0, program: 8 },
+  { name: "Bell (Legacy)", bank: 0, program: 14 },
+  { name: "Choir Bell (Legacy)", bank: 0, program: 15 },
+  { name: "Pipe Organ", bank: 0, program: 19 },
+  { name: "Lute", bank: 0, program: 24 },
+  { name: "Bass", bank: 0, program: 33 },
+  { name: "Harp", bank: 0, program: 46 },
+  { name: "Horn", bank: 0, program: 56 },
+  { name: "Verdarach", bank: 0, program: 58 },
+  { name: "Flute", bank: 0, program: 73 },
+  { name: "Choir Bell", bank: 0, program: 112 },
+  { name: "Drums", bank: 0, program: 114 }
+];
+function getSoundFontPresetOptions(selectedProgram = 1) {
+  return SOUND_FONT_PRESETS.map(p => `<option value="${p.program}" data-bank="${p.bank}" ${p.program === Number(selectedProgram) ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("");
+}
+function getDefaultSoundFontProgram(track) {
+  const type = track?.playbackInstrument || "piano";
+  const defaults = { piano: 1, strings: 0, brass: 56, flute: 73, guitar: 24, lute: 24, harp: 46, bass: 33, organ: 19, choir: 112, synth: 0 };
+  return defaults[type] ?? 1;
+}
+function setupTrackInstrumentSelectors() {
+  elements.channels.querySelectorAll(".track-instrument-select").forEach(select => {
+    select.addEventListener("change", async () => {
+      const index = Number(select.dataset.trackIndex);
+      const track = conversionResults[index];
+      if (!track) return;
+      track.selectedSoundFontProgram = Number(select.value);
+      const state = trackPlayers.get(index);
+      if (state) {
+        state.track = track;
+        // Stop any currently ringing notes so the change is immediately audible.
+        state.voices.forEach(voice => {
+          if (voice?.soundFont) soundFontNoteOff(voice.channel, voice.midi);
+        });
+        state.voices.clear();
+        soundFontAllNotesOff(soundFontChannelForTrack(index));
+      }
+      const label = SOUND_FONT_PRESETS.find(p => p.program === track.selectedSoundFontProgram)?.name || "Custom";
+      const info = elements.channels.querySelector(`[data-track-index="${index}"] .channel-info`);
+      if (info) info.textContent = `${track.noteCount} notes · ${label}`;
+      if (soundFontEngine.status !== "ready") await ensureSoundFontReady();
+      if (soundFontEngine.status === "ready") {
+        prepareSoundFontChannel(soundFontChannelForTrack(index), track);
+      } else {
+        console.warn("SoundFont unavailable; track playback will use the basic fallback sound.");
+      }
+    });
+  });
+}
 
 function renderChannels() {
 
@@ -804,10 +860,17 @@ function renderChannels() {
                 </div>
               </div>
 
-              <div class="track-player" data-player-index="${index}">
+              <div class="track-controls">
+                <label class="instrument-picker">Sound
+                  <select class="track-instrument-select" data-track-index="${index}" aria-label="Choose sound for ${escapeHtml(track.name)}">
+                    ${getSoundFontPresetOptions(track.selectedSoundFontProgram ?? getDefaultSoundFontProgram(track))}
+                  </select>
+                </label>
+                <div class="track-player" data-player-index="${index}">
                 <button type="button" class="track-play" title="Play this track">▶ Play</button>
                 <button type="button" class="track-pause" title="Pause this track">⏸ Pause</button>
                 <button type="button" class="track-stop" title="Stop this track">■ Stop</button>
+                </div>
               </div>
             </div>
 
@@ -820,6 +883,7 @@ function renderChannels() {
       .join("");
 
   setupTrackPlayers();
+  setupTrackInstrumentSelectors();
   setGlobalPlaybackUI("stopped");
   setGlobalPlaybackEnabled(true);
 
@@ -902,61 +966,232 @@ function midiToFrequency(midi) {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
 
-function instrumentVoiceConfig(type) {
-  const configs = {
-    piano:  { wave: "triangle", attack: 0.008, release: 0.45, filter: 2600, gain: 0.20 },
-    strings:{ wave: "sawtooth", attack: 0.16, release: 0.65, filter: 1800, gain: 0.10 },
-    brass:  { wave: "sawtooth", attack: 0.07, release: 0.35, filter: 1400, gain: 0.12 },
-    flute:  { wave: "sine", attack: 0.10, release: 0.35, filter: 3000, gain: 0.16 },
-    guitar: { wave: "triangle", attack: 0.006, release: 0.30, filter: 2200, gain: 0.18 },
-    lute:   { wave: "triangle", attack: 0.004, release: 0.24, filter: 2600, gain: 0.17 },
-    harp:   { wave: "sine", attack: 0.003, release: 0.55, filter: 3200, gain: 0.16 },
-    bass:   { wave: "triangle", attack: 0.012, release: 0.42, filter: 900, gain: 0.22 },
-    organ:  { wave: "sine", attack: 0.03, release: 0.30, filter: 2400, gain: 0.13 },
-    choir:  { wave: "sine", attack: 0.22, release: 0.75, filter: 1600, gain: 0.10 },
-    synth:  { wave: "square", attack: 0.025, release: 0.35, filter: 1900, gain: 0.08 }
-  };
-  return configs[type] || configs.piano;
+/* ============================================================
+   SoundFont audio engine (FluidSynth WASM)
+   The same engine powers track playback and the on-page piano.
+
+   Works over http(s) via fetch. On file:// (opening index.html
+   directly) browsers block fetch of local assets, so we fall
+   back to a one-time file picker for assets/gw2Instruments.sf2.
+   ============================================================ */
+const soundFontEngine = {
+  synth: null,
+  node: null,
+  gainNode: null,
+  soundFontId: -1,
+  readyPromise: null,
+  status: "not-loaded", // not-loaded | loading | ready | error | needs-file
+  lastError: null,
+  channelsInUse: new Set(),
+  /** Cached ArrayBuffer when user picked the SF2 via file input */
+  pickedBuffer: null,
+  /** FluidSynth master gain (library default is ~0.2 — too quiet). Range ~0–5. */
+  masterGain: 1.4,
+  /** Extra Web Audio gain after the synth (keeps headroom without clipping). */
+  outputGain: 2.8
+};
+
+function setSoundFontStatusMessage(message) {
+  if (pianoElements?.status) {
+    pianoElements.status.textContent = message;
+  }
 }
 
-function stopVoice(voice, ctx, release = 0.06) {
-  if (!voice) return;
-  const now = ctx.currentTime;
+/**
+ * Ask the user to pick assets/gw2Instruments.sf2 (needed on file://).
+ * Returns ArrayBuffer or throws if cancelled.
+ */
+function pickSoundFontFile() {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".sf2,audio/x-soundfont,application/octet-stream";
+    input.style.display = "none";
+    document.body.appendChild(input);
+
+    const cleanup = () => {
+      input.remove();
+    };
+
+    input.addEventListener("change", async () => {
+      const file = input.files && input.files[0];
+      cleanup();
+      if (!file) {
+        reject(new Error("No SoundFont file selected"));
+        return;
+      }
+      try {
+        setSoundFontStatusMessage(`Reading ${file.name}…`);
+        const buffer = await file.arrayBuffer();
+        resolve(buffer);
+      } catch (err) {
+        reject(err);
+      }
+    });
+
+    // If the user closes the dialog without choosing, some browsers
+    // never fire change — treat focus return as cancel after a tick.
+    const onFocus = () => {
+      setTimeout(() => {
+        if (!input.files || !input.files.length) {
+          cleanup();
+          window.removeEventListener("focus", onFocus);
+          reject(new Error("SoundFont file selection cancelled"));
+        }
+      }, 600);
+    };
+    window.addEventListener("focus", onFocus, { once: true });
+
+    setSoundFontStatusMessage("Select assets/gw2Instruments.sf2 to enable sound…");
+    input.click();
+  });
+}
+
+async function loadSoundFontBuffer() {
+  // Prefer a previously picked file (file:// path)
+  if (soundFontEngine.pickedBuffer) {
+    return soundFontEngine.pickedBuffer;
+  }
+
+  // Try normal fetch (works when served over http:// or https://)
   try {
-    voice.gain.gain.cancelScheduledValues(now);
-    voice.gain.gain.setValueAtTime(Math.max(0.0001, voice.gain.gain.value), now);
-    voice.gain.gain.exponentialRampToValueAtTime(0.0001, now + release);
-    voice.osc.stop(now + release + 0.02);
-  } catch (_) {}
+    const response = await fetch("assets/gw2Instruments.sf2");
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    setSoundFontStatusMessage("Downloading SoundFont…");
+    const buffer = await response.arrayBuffer();
+    if (!buffer || buffer.byteLength < 1000) {
+      throw new Error("SoundFont file is empty or too small");
+    }
+    return buffer;
+  } catch (fetchError) {
+    console.warn(
+      "Could not fetch assets/gw2Instruments.sf2 (common when opening index.html via file://).",
+      fetchError
+    );
+    // Fall back: let the user pick the file once
+    soundFontEngine.status = "needs-file";
+    const buffer = await pickSoundFontFile();
+    soundFontEngine.pickedBuffer = buffer;
+    return buffer;
+  }
 }
 
-function createTrackVoice(track, note, when, duration) {
-  const ctx = getPlaybackAudioContext();
-  const config = instrumentVoiceConfig(track.playbackInstrument);
-  const osc = ctx.createOscillator();
-  const filter = ctx.createBiquadFilter();
-  const gain = ctx.createGain();
-  const frequency = midiToFrequency(note.midi);
+async function ensureSoundFontReady() {
+  if (soundFontEngine.synth && soundFontEngine.status === "ready") {
+    const ctx = getPlaybackAudioContext();
+    if (ctx.state === "suspended") await ctx.resume();
+    return true;
+  }
+  if (soundFontEngine.readyPromise) return soundFontEngine.readyPromise;
 
-  osc.type = config.wave;
-  osc.frequency.setValueAtTime(frequency, when);
+  soundFontEngine.status = "loading";
+  soundFontEngine.lastError = null;
+  setSoundFontStatusMessage("Loading SoundFont engine…");
 
-  filter.type = "lowpass";
-  filter.frequency.setValueAtTime(config.filter, when);
-  filter.Q.value = track.playbackInstrument === "synth" ? 2.5 : 0.7;
+  soundFontEngine.readyPromise = (async () => {
+    try {
+      if (!window.JSSynth) {
+        throw new Error(
+          "SoundFont engine scripts did not load. Keep js/vendor/ next to index.html, or allow CDN access."
+        );
+      }
+      await window.JSSynth.waitForReady();
 
-  gain.gain.setValueAtTime(0.0001, when);
-  gain.gain.exponentialRampToValueAtTime(config.gain, when + config.attack);
-  gain.gain.setValueAtTime(config.gain * 0.72, when + config.attack + Math.min(0.08, duration * 0.15));
-  gain.gain.exponentialRampToValueAtTime(0.0001, when + Math.max(config.attack + 0.03, duration) + config.release);
+      const ctx = getPlaybackAudioContext();
+      if (ctx.state === "suspended") await ctx.resume();
 
-  osc.connect(filter);
-  filter.connect(gain);
-  gain.connect(ctx.destination);
-  osc.start(when);
-  osc.stop(when + Math.max(config.attack + 0.03, duration) + config.release + 0.04);
+      const synth = new window.JSSynth.Synthesizer();
+      synth.init(ctx.sampleRate);
+      // FluidSynth default master gain is ~0.2 (very quiet). Raise it.
+      try {
+        if (typeof synth.setGain === "function") {
+          synth.setGain(soundFontEngine.masterGain);
+        }
+      } catch (e) {
+        console.warn("Could not set FluidSynth master gain", e);
+      }
 
-  return { osc, gain };
+      const node = synth.createAudioNode(ctx, 8192);
+      // Extra GainNode so overall level is audible without maxing OS volume
+      const gainNode = ctx.createGain();
+      gainNode.gain.value = soundFontEngine.outputGain;
+      node.connect(gainNode);
+      gainNode.connect(ctx.destination);
+
+      setSoundFontStatusMessage("Loading SoundFont samples (≈43 MB)…");
+      const sfBuffer = await loadSoundFontBuffer();
+
+      setSoundFontStatusMessage("Initializing synthesizer…");
+      soundFontEngine.soundFontId = await synth.loadSFont(sfBuffer);
+      soundFontEngine.synth = synth;
+      soundFontEngine.node = node;
+      soundFontEngine.gainNode = gainNode;
+      soundFontEngine.status = "ready";
+      soundFontEngine.lastError = null;
+      setSoundFontStatusMessage("SoundFont ready · C4–C5");
+      return true;
+    } catch (error) {
+      console.error("GW2 SoundFont could not be initialized.", error);
+      soundFontEngine.status = "error";
+      soundFontEngine.lastError = error?.message || String(error);
+      soundFontEngine.readyPromise = null;
+      setSoundFontStatusMessage(
+        `SoundFont failed: ${soundFontEngine.lastError}`
+      );
+      return false;
+    }
+  })();
+
+  return soundFontEngine.readyPromise;
+}
+
+const SOUND_FONT_PROGRAMS = {
+  piano: 0, strings: 48, brass: 56, flute: 73, guitar: 24,
+  lute: 24, harp: 46, bass: 32, organ: 19, choir: 52, synth: 80
+};
+function soundFontChannelForTrack(index) { return index % 9; }
+function prepareSoundFontChannel(channel, track) {
+  if (!soundFontEngine.synth || soundFontEngine.soundFontId < 0) return;
+  const selectedProgram = Number(track?.selectedSoundFontProgram);
+  const instrumentNumber = Number(track?.instrumentNumber);
+  const program = Number.isInteger(selectedProgram) && selectedProgram >= 0 && selectedProgram <= 127
+    ? selectedProgram
+    : (Number.isInteger(instrumentNumber) && instrumentNumber >= 0 && instrumentNumber <= 127
+      ? instrumentNumber : (SOUND_FONT_PROGRAMS[track?.playbackInstrument] ?? 1));
+  try {
+    // midiProgramSelect binds this channel to the requested preset in our
+    // bundled SoundFont. Do not follow it with midiProgramChange: that can
+    // override the SoundFont-specific selection with the default bank preset.
+    soundFontEngine.synth.midiProgramSelect(channel, soundFontEngine.soundFontId, 0, program);
+    // Channel volume (CC7) and expression (CC11) at full so presets aren't quiet
+    soundFontEngine.synth.midiCC(channel, 7, 127);
+    soundFontEngine.synth.midiCC(channel, 11, 127);
+  } catch (e) {
+    console.warn("SoundFont program selection failed", { channel, program, error: e });
+  }
+}
+function soundFontNoteOn(channel, midi, velocity = 112) {
+  if (!soundFontEngine.synth || soundFontEngine.status !== "ready") return false;
+  try {
+    const vel = Math.max(1, Math.min(127, velocity | 0));
+    soundFontEngine.synth.midiNoteOn(channel, midi, vel);
+    soundFontEngine.channelsInUse.add(channel);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+function soundFontNoteOff(channel, midi) {
+  if (!soundFontEngine.synth || soundFontEngine.status !== "ready") return;
+  try { soundFontEngine.synth.midiNoteOff(channel, midi); } catch (_) {}
+}
+function soundFontAllNotesOff(channel) {
+  if (!soundFontEngine.synth || soundFontEngine.status !== "ready") return;
+  try { soundFontEngine.synth.midiCC(channel, 123, 0); } catch (_) {
+    try { soundFontEngine.synth.midiAllSoundsOff(channel); } catch (_) {}
+  }
 }
 
 function createTrackPlayer(index) {
@@ -987,9 +1222,11 @@ function clearPlayerTimers(state) {
 function stopTrackPlayer(index, reset = true) {
   const state = trackPlayers.get(index);
   if (!state) return;
-  const ctx = getPlaybackAudioContext();
   clearPlayerTimers(state);
-  state.voices.forEach(voice => stopVoice(voice, ctx));
+  state.voices.forEach(voice => {
+    if (voice?.soundFont) soundFontNoteOff(voice.channel, voice.midi);
+  });
+  soundFontAllNotesOff(soundFontChannelForTrack(index));
   state.voices.clear();
   state.status = "stopped";
   state.pausedAt = reset ? 0 : state.pausedAt;
@@ -997,11 +1234,22 @@ function stopTrackPlayer(index, reset = true) {
   updateTrackPlayerUI(index);
 }
 
-function scheduleTrackFrom(index, offsetSeconds, sharedStartWall = null) {
+async function scheduleTrackFrom(index, offsetSeconds, sharedStartWall = null) {
   const state = trackPlayers.get(index);
   if (!state) return;
-  const ctx = getPlaybackAudioContext();
   clearPlayerTimers(state);
+  const ready = await ensureSoundFontReady();
+  if (!ready) {
+    state.status = "stopped";
+    updateTrackPlayerUI(index);
+    if (pianoElements?.status) {
+      pianoElements.status.textContent = soundFontEngine.lastError
+        ? `SoundFont failed: ${soundFontEngine.lastError}`
+        : "SoundFont failed to load. Check the browser console and assets/gw2Instruments.sf2.";
+    }
+    return;
+  }
+  prepareSoundFontChannel(soundFontChannelForTrack(index), state.track);
 
   const tempoBpm = Number(elements.tempo?.value) || 120;
   const secondsPerBeat = 60 / tempoBpm;
@@ -1019,9 +1267,16 @@ function scheduleTrackFrom(index, offsetSeconds, sharedStartWall = null) {
       if (state.status !== "playing") return;
       const actualOffset = Math.max(0, offsetSeconds - noteStart);
       const remaining = Math.max(0.025, note.durationBeats * secondsPerBeat - actualOffset);
-      const voice = createTrackVoice(state.track, note, ctx.currentTime, remaining);
+      if (soundFontEngine.status !== "ready") return;
+      const channel = soundFontChannelForTrack(index);
+      prepareSoundFontChannel(channel, state.track);
+      if (!soundFontNoteOn(channel, note.midi, 115)) return;
+      const voice = { soundFont: true, channel, midi: note.midi };
       state.voices.add(voice);
-      setTimeout(() => state.voices.delete(voice), (remaining + 1.2) * 1000);
+      setTimeout(() => {
+        soundFontNoteOff(channel, note.midi);
+        state.voices.delete(voice);
+      }, remaining * 1000);
     }, delay);
     state.timerIds.push(timer);
   });
@@ -1051,8 +1306,10 @@ function pauseTrackPlayer(index) {
   const elapsed = Math.max(0, performance.now() / 1000 - state.startedAt);
   state.pausedAt = Math.min(state.duration, elapsed);
   clearPlayerTimers(state);
-  const ctx = getPlaybackAudioContext();
-  state.voices.forEach(voice => stopVoice(voice, ctx, 0.05));
+  state.voices.forEach(voice => {
+    if (voice?.soundFont) soundFontNoteOff(voice.channel, voice.midi);
+  });
+  soundFontAllNotesOff(soundFontChannelForTrack(index));
   state.voices.clear();
   state.status = "paused";
   updateTrackPlayerUI(index);
@@ -1414,6 +1671,7 @@ function escapeHtml(text) {
 
 const piano = {
   currentOctave: "mid",
+  selectedSoundFontProgram: 1,
 
   /*
    * MIDI note for the LOW octave's C.
@@ -1422,11 +1680,8 @@ const piano = {
   baseMidi: 48,
 
   /* Release time after a key is released, in seconds. */
-  releaseSeconds: 1.20,
 
-  audioContext: null,
 
-  masterGain: null,
 
   activeNotes: new Map(),
 
@@ -1755,180 +2010,40 @@ function midiToFrequency(midiNote) {
 }
 
 
-/*
- * Create the audio context only when the user interacts.
- *
- * This avoids browser autoplay restrictions.
- *
- * The piano uses a simple Web Audio synth.
- * No external audio file is needed.
- */
-function getAudioContext() {
+function startPianoNote(semitone, buttonElement) {
+  const midiNote = getPianoMidi(semitone);
+  if (piano.activeNotes.has(midiNote)) return;
 
-  if (!piano.audioContext) {
+  if (buttonElement) buttonElement.classList.add("active");
+  const noteName = getPianoNoteLabel(semitone);
+  pianoElements.status.textContent = `Loading SoundFont · ${noteName}`;
 
-    const AudioContext =
-      window.AudioContext ||
-      window.webkitAudioContext;
-
-    if (!AudioContext) {
-      return null;
+  // The piano uses the same bundled SoundFont as MIDI tracks. No oscillator
+  // fallback is created, so the selected preset is always the actual sound.
+  const pendingVoice = { soundFont: false, pending: true, midi: midiNote, button: buttonElement };
+  piano.activeNotes.set(midiNote, pendingVoice);
+  ensureSoundFontReady().then(ready => {
+    if (!ready) {
+      if (piano.activeNotes.get(midiNote) === pendingVoice) piano.activeNotes.delete(midiNote);
+      if (buttonElement) buttonElement.classList.remove("active");
+      pianoElements.status.textContent = soundFontEngine.lastError
+        ? `SoundFont failed: ${soundFontEngine.lastError}`
+        : "SoundFont failed to load. Check assets/gw2Instruments.sf2 and the browser console.";
+      return;
     }
-
-    piano.audioContext =
-      new AudioContext();
-
-    setupPianoAudioBus();
-
-  }
-
-  return piano.audioContext;
-
-}
-
-
-/*
- * Single master output for the piano.
- * Sustained/released sound is handled per-note rather than
- * through the master output.
- */
-function setupPianoAudioBus() {
-
-  const context =
-    piano.audioContext;
-
-  piano.masterGain =
-    context.createGain();
-
-  piano.masterGain.gain.value =
-    0.78;
-
-  piano.masterGain.connect(
-    context.destination
-  );
-
-}
-
-
-/*
- * Start one piano note.
- *
- * This is intentionally a simple synth voice. The note remains
- * active while the key is held and then fades out naturally.
- * Later we can replace it with sampled piano audio without
- * changing the keyboard logic.
- */
-function startPianoNote(
-  semitone,
-  buttonElement
-) {
-
-  const midiNote =
-    getPianoMidi(semitone);
-
-  /*
-   * Don't create duplicate voices if a keyboard key
-   * repeats keydown events.
-   */
-  if (
-    piano.activeNotes.has(
-      midiNote
-    )
-  ) {
-    return;
-  }
-
-
-  const context =
-    getAudioContext();
-
-  if (!context) {
-    pianoElements.status.textContent =
-      "Web Audio is not supported";
-    return;
-  }
-
-
-  if (
-    context.state === "suspended"
-  ) {
-    context.resume();
-  }
-
-
-  const oscillator =
-    context.createOscillator();
-
-  const gain =
-    context.createGain();
-
-
-  /*
-   * Triangle wave gives a softer, more piano-like
-   * electronic sound than a pure sine wave.
-   */
-  oscillator.type =
-    "triangle";
-
-  oscillator.frequency.value =
-    midiToFrequency(midiNote);
-
-
-  const now =
-    context.currentTime;
-
-
-  /*
-   * Small attack followed by a gentle sustain level.
-   * The important part is the release: when the user lets
-   * go of the key, the note fades instead of cutting off.
-   */
-  gain.gain.setValueAtTime(
-    0,
-    now
-  );
-
-  gain.gain.linearRampToValueAtTime(
-    0.20,
-    now + 0.018
-  );
-
-  oscillator.connect(gain);
-
-  gain.connect(
-    piano.masterGain
-  );
-
-  oscillator.start(now);
-
-
-  piano.activeNotes.set(
-    midiNote,
-    {
-      oscillator,
-      gain,
-      button: buttonElement
+    if (piano.activeNotes.get(midiNote) !== pendingVoice) return;
+    const channel = 15;
+    prepareSoundFontChannel(channel, { playbackInstrument: "piano", selectedSoundFontProgram: piano.selectedSoundFontProgram });
+    if (!soundFontNoteOn(channel, midiNote, 120)) {
+      piano.activeNotes.delete(midiNote);
+      if (buttonElement) buttonElement.classList.remove("active");
+      pianoElements.status.textContent = "SoundFont could not play this note.";
+      return;
     }
-  );
-
-
-  if (buttonElement) {
-    buttonElement.classList.add(
-      "active"
-    );
-  }
-
-
-  const noteName =
-    getPianoNoteLabel(
-      semitone
-    );
-
-
-  pianoElements.status.textContent =
-    `Playing ${noteName} · MIDI ${midiNote}`;
+    piano.activeNotes.set(midiNote, { soundFont: true, channel, midi: midiNote, button: buttonElement });
+    pianoElements.status.textContent = `Playing ${noteName} · MIDI ${midiNote}`;
+  });
 }
-
 
 /*
  * Stop one piano note with a natural sustained release.
@@ -1951,51 +2066,9 @@ function stopPianoNote(
   }
 
 
-  const context =
-    piano.audioContext;
-
-  if (!context) {
-    return;
-  }
-
-
-  const now =
-    context.currentTime;
-
-
-  /*
-   * Avoid an audible click.
-   */
-  voice.gain.gain.cancelScheduledValues(
-    now
-  );
-
-  voice.gain.gain.setValueAtTime(
-    voice.gain.gain.value,
-    now
-  );
-
-  voice.gain.gain.linearRampToValueAtTime(
-    0,
-    now + piano.releaseSeconds
-  );
-
-
-  voice.oscillator.stop(
-    now + piano.releaseSeconds + 0.10
-  );
-
-
-  if (voice.button) {
-    voice.button.classList.remove(
-      "active"
-    );
-  }
-
-
-  piano.activeNotes.delete(
-    midiNote
-  );
+  if (voice.soundFont) soundFontNoteOff(voice.channel, voice.midi);
+  if (voice.button) voice.button.classList.remove("active");
+  piano.activeNotes.delete(midiNote);
 
 }
 
@@ -2004,56 +2077,12 @@ function stopPianoNote(
  * Stop everything currently sounding.
  */
 function stopAllPianoNotes() {
-
-  for (
-    const voice of
-    piano.activeNotes.values()
-  ) {
-
-    try {
-
-      const context =
-        piano.audioContext;
-
-      const now =
-        context.currentTime;
-
-      voice.gain.gain.cancelScheduledValues(
-        now
-      );
-
-      voice.gain.gain.setValueAtTime(
-        voice.gain.gain.value,
-        now
-      );
-
-      voice.gain.gain.linearRampToValueAtTime(
-        0,
-        now + 0.35
-      );
-
-      voice.oscillator.stop(
-        now + 0.40
-      );
-
-    }
-    catch {
-      /*
-       * Voice may already have stopped.
-       */
-    }
-
-
-    if (voice.button) {
-      voice.button.classList.remove(
-        "active"
-      );
-    }
-
+  for (const voice of piano.activeNotes.values()) {
+    if (voice.soundFont) soundFontNoteOff(voice.channel, voice.midi);
+    if (voice.button) voice.button.classList.remove("active");
   }
-
+  soundFontAllNotesOff(15);
   piano.activeNotes.clear();
-
 }
 
 
@@ -2425,6 +2454,24 @@ window.addEventListener(
 
 
 /*
- * Build the piano immediately.
+ * Build the piano immediately and populate the SoundFont preset selector.
  */
 renderPiano();
+const pianoInstrumentSelect = document.getElementById("pianoInstrumentSelect");
+if (pianoInstrumentSelect) {
+  pianoInstrumentSelect.innerHTML = getSoundFontPresetOptions(piano.selectedSoundFontProgram);
+  pianoInstrumentSelect.addEventListener("change", async () => {
+    piano.selectedSoundFontProgram = Number(pianoInstrumentSelect.value);
+    stopAllPianoNotes();
+    if (soundFontEngine.status !== "ready") await ensureSoundFontReady();
+    const preset = SOUND_FONT_PRESETS.find(item => item.program === piano.selectedSoundFontProgram);
+    if (soundFontEngine.status === "ready") {
+      prepareSoundFontChannel(15, { playbackInstrument: "piano", selectedSoundFontProgram: piano.selectedSoundFontProgram });
+      pianoElements.status.textContent = `Sound: ${preset?.name || "Custom"}`;
+    } else {
+      pianoElements.status.textContent = soundFontEngine.lastError
+        ? `SoundFont failed: ${soundFontEngine.lastError}`
+        : "SoundFont failed to load. Check assets/gw2Instruments.sf2 and the browser console.";
+    }
+  });
+}

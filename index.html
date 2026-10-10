@@ -124,11 +124,11 @@
           <span class="symbol chord">/</span>
           <span>Chord — notes played together</span>
 
-          <span class="symbol">.</span>
-          <span>Quarter dot (+25%)</span>
-          
           <span class="symbol">·</span>
           <span>Dotted note (+50%)</span>
+
+          <span class="symbol">.</span>
+          <span>Quarter dot (+25%)</span>
 
           <span class="symbol">·.</span>
           <span>Double dotted (+75%)</span>
@@ -253,6 +253,9 @@
               Oct + &nbsp; [ 0 ] &nbsp; ›
             </button>
           </div>
+          <label class="instrument-picker piano-instrument-picker">Play with
+            <select id="pianoInstrumentSelect" aria-label="Choose virtual piano instrument"></select>
+          </label>
         </div>
 
         <div
@@ -287,8 +290,23 @@
   </main>
 
 
-  <!-- Tone.js MIDI parser -->
-  <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js"></script>
+  <!-- Tone.js MIDI parser (local; CDN fallback if missing) -->
+  <script src="js/vendor/Midi.js"></script>
+  <script>
+    if (typeof Midi === "undefined") {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js"><\/script>');
+    }
+  </script>
+
+  <!-- FluidSynth WebAssembly + js-synthesizer (local; CDN fallback if missing) -->
+  <script src="js/vendor/libfluidsynth-2.4.6.js"></script>
+  <script src="js/vendor/js-synthesizer.min.js"></script>
+  <script>
+    if (typeof JSSynth === "undefined") {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/js-synthesizer@1.11.0/externals/libfluidsynth-2.4.6.js"><\/script>');
+      document.write('<script src="https://cdn.jsdelivr.net/npm/js-synthesizer@1.11.0/dist/js-synthesizer.min.js"><\/script>');
+    }
+  </script>
 
   <!-- Our JavaScript -->
   <script src="js/app.js"></script>

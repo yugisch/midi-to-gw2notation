@@ -74,3 +74,28 @@ This allows you to use a simpler grid for normal songs while still preserving fa
 
 The generated notation follows Powerina's GW2 notation: 
 https://gw2-songbook.com/song/568 
+
+## How to run
+
+**Recommended (HTTP server):** from this folder run:
+
+```bash
+python3 -m http.server 8080
+```
+
+Then open `http://localhost:8080` in your browser.
+
+**Open `index.html` directly (file://):** also supported. Browsers block loading the 43 MB SoundFont via `fetch` on `file://`, so on first play the app will ask you to pick `assets/gw2Instruments.sf2` once. After that, piano and tracks use the loaded SoundFont.
+
+Engine scripts live in `js/vendor/` (no internet required for them). CDN is only used as a fallback if those files are missing.
+
+## SoundFont playback
+
+The app includes `assets/gw2Instruments.sf2` and uses FluidSynth WebAssembly through js-synthesizer to play track notes and the on-page piano with SoundFont samples. The first playback initializes the synthesizer and loads the roughly 43 MB SoundFont, so it may take a little while. Playback is SoundFont-only: if initialization fails, the status line shows the real error message.
+
+Check the SoundFont's license/redistribution terms before publishing the repository publicly, especially because the `.sf2` file is bundled with the site.
+
+
+## SoundFont preset selection
+
+The bundled `assets/gw2Instruments.sf2` SoundFont includes these melodic presets: Minstrel, Piano, Bell, Bell (Legacy), Choir Bell (Legacy), Pipe Organ, Lute, Bass, Harp, Horn, Verdarach, Flute, Choir Bell, and Drums. Use the Sound dropdown on each track to audition a different preset, or use the Play with dropdown above the virtual keyboard. The preset catalog is also provided as `assets/soundfont-presets.xml` and `assets/soundfont-presets.json`.

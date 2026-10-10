@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soundfont name="gw2Instruments.sf2" presetCount="14">
+  <preset bank="0" program="0" name="Minstrel" />
+  <preset bank="0" program="8" name="Bell" />
+  <preset bank="0" program="14" name="Bell_Legacy" />
+  <preset bank="0" program="15" name="Choir Bell_Legacy" />
+  <preset bank="0" program="19" name="Pipe Organ" />
+  <preset bank="0" program="24" name="Lute" />
+  <preset bank="0" program="33" name="Bass" />
+  <preset bank="0" program="46" name="Harp" />
+  <preset bank="0" program="56" name="Horn" />
+  <preset bank="0" program="58" name="Verdarach" />
+  <preset bank="0" program="73" name="Flute" />
+  <preset bank="0" program="112" name="Choir Bell" />
+  <preset bank="0" program="114" name="Drums" />
+  <preset bank="0" program="1" name="Piano" />
+</soundfont>

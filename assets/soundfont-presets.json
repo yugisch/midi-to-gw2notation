@@ -1,0 +1,72 @@
+[
+  {
+    "name": "Minstrel",
+    "bank": 0,
+    "program": 0
+  },
+  {
+    "name": "Bell",
+    "bank": 0,
+    "program": 8
+  },
+  {
+    "name": "Bell_Legacy",
+    "bank": 0,
+    "program": 14
+  },
+  {
+    "name": "Choir Bell_Legacy",
+    "bank": 0,
+    "program": 15
+  },
+  {
+    "name": "Pipe Organ",
+    "bank": 0,
+    "program": 19
+  },
+  {
+    "name": "Lute",
+    "bank": 0,
+    "program": 24
+  },
+  {
+    "name": "Bass",
+    "bank": 0,
+    "program": 33
+  },
+  {
+    "name": "Harp",
+    "bank": 0,
+    "program": 46
+  },
+  {
+    "name": "Horn",
+    "bank": 0,
+    "program": 56
+  },
+  {
+    "name": "Verdarach",
+    "bank": 0,
+    "program": 58
+  },
+  {
+    "name": "Flute",
+    "bank": 0,
+    "program": 73
+  },
+  {
+    "name": "Choir Bell",
+    "bank": 0,
+    "program": 112
+  },
+  {
+    "name": "Drums",
+    "bank": 0,
+    "program": 114
+  },
+  {
+    "name": "Piano",
+    "bank": 0,
+    "program": 1
+  }
+]

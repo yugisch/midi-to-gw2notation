@@ -1352,3 +1352,12 @@ select:focus {
   box-shadow: 0 0 8px rgba(94, 234, 212, 0.20);
   text-shadow: 0 0 6px rgba(94, 234, 212, 0.55);
 }
+
+
+/* Manual SoundFont preset selectors */
+.track-controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.instrument-picker { display: flex; align-items: center; gap: 7px; color: var(--text-muted); font: 10px "DM Mono", monospace; white-space: nowrap; }
+.instrument-picker select { max-width: 170px; min-height: 32px; padding: 5px 24px 5px 9px; border: 1px solid #34466e; border-radius: 7px; background: #101a31; color: #dbe6ff; font: 11px "DM Mono", monospace; }
+.instrument-picker select:focus { outline: 1px solid var(--cyan); border-color: var(--cyan); }
+.piano-instrument-picker { margin-left: auto; }
+@media (max-width: 640px) { .track-controls { width: 100%; justify-content: flex-start; } .track-controls .track-player { width: auto; } .piano-instrument-picker { margin: 12px 0 0; } }
