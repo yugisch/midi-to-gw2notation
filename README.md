@@ -17,7 +17,7 @@ Upload a `.mid` / `.midi` file and convert its musical notes into Guild Wars 2 n
 The converter supports:
 
 - Multiple MIDI tracks/channels
-- Separate notation output for each channel
+- Separate notation output for each track
 - Chords
 - Octave notation
 - Sharps / accidentals
@@ -59,6 +59,7 @@ The converter includes a configurable beat grid for controlling the resolution o
 
 Available resolutions include:
 
+- **Auto** to preserve midi rythm
 - Whole beat
 - Half beat
 - Quarter beat
@@ -75,7 +76,9 @@ This allows you to use a simpler grid for normal songs while still preserving fa
 The generated notation follows Powerina's GW2 notation: 
 https://gw2-songbook.com/song/568 
 
-## How to run
+---
+
+## 🚀 How to run
 
 **Recommended (HTTP server):** from this folder run:
 
@@ -92,9 +95,6 @@ Engine scripts live in `js/vendor/` (no internet required for them). CDN is only
 ## SoundFont playback
 
 The app includes `assets/gw2Instruments.sf2` and uses FluidSynth WebAssembly through js-synthesizer to play track notes and the on-page piano with SoundFont samples. The first playback initializes the synthesizer and loads the roughly 43 MB SoundFont, so it may take a little while. Playback is SoundFont-only: if initialization fails, the status line shows the real error message.
-
-Check the SoundFont's license/redistribution terms before publishing the repository publicly, especially because the `.sf2` file is bundled with the site.
-
 
 ## SoundFont preset selection
 
