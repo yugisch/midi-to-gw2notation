@@ -99,3 +99,12 @@ The app includes `assets/gw2Instruments.sf2` and uses FluidSynth WebAssembly thr
 ## SoundFont preset selection
 
 The bundled `assets/gw2Instruments.sf2` SoundFont includes these melodic presets: Minstrel, Piano, Bell, Bell (Legacy), Choir Bell (Legacy), Pipe Organ, Lute, Bass, Harp, Horn, Verdarach, Flute, Choir Bell, and Drums. Use the Sound dropdown on each track to audition a different preset, or use the Play with dropdown above the virtual keyboard. The preset catalog is also provided as `assets/soundfont-presets.xml` and `assets/soundfont-presets.json`.
+
+---
+
+## 🙌 Credits
+
+- Notation reference: [Powerina's GW2 notation](https://gw2-songbook.com/song/568)
+- SoundFont playback: [FluidSynth](https://www.fluidsynth.org/) WebAssembly via [`js-synthesizer`](https://github.com/paulrosen/JS-Synthesizer)
+- SounFont File: [Ori from Opus] (https://www.gw2opus.com/gw2-instruments-in-musescore-installation-guide/)
+
