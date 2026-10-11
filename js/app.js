@@ -1755,15 +1755,29 @@ function setupTrackPlayers() {
    9. EXPORT
    ============================================================ */
 
-function getAllPlainText() {
+/** Strip null bytes (from some MIDI track names) that make Windows treat the file as UTF-16. */
+function sanitizeExportText(text) {
+  return String(text ?? "").replace(/\u0000/g, "");
+}
 
+function getAllPlainText() {
   return conversionResults
     .map(track =>
-      `${track.name}\n` +
-      track.plain
+      `${sanitizeExportText(track.name)}\n` +
+      sanitizeExportText(track.plain)
     )
     .join("\n\n");
+}
 
+/**
+ * Build a real UTF-8 .txt Blob.
+ * - TextEncoder guarantees UTF-8 bytes (not UTF-16)
+ * - Leading BOM (U+FEFF) so Windows Notepad auto-detects UTF-8 correctly
+ */
+function createUtf8TextBlob(text) {
+  const clean = sanitizeExportText(text);
+  const utf8 = new TextEncoder().encode("\uFEFF" + clean);
+  return new Blob([utf8], { type: "text/plain;charset=utf-8" });
 }
 
 
@@ -1800,33 +1814,17 @@ elements.downloadButton.addEventListener(
   "click",
   () => {
 
-    const blob =
-      new Blob(
-        [getAllPlainText()],
-        {
-          type:
-            "text/plain;charset=utf-8"
-        }
-      );
-
-
-    const url =
-      URL.createObjectURL(blob);
-
-
-    const link =
-      document.createElement("a");
+    const blob = createUtf8TextBlob(getAllPlainText());
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
 
     link.href = url;
-
     link.download =
       ((midiFile && midiFile.name)
         ? midiFile.name.replace(/\.midi?$/i, "")
         : "gw2-notation") + ".txt";
 
-
     link.click();
-
     URL.revokeObjectURL(url);
 
   }
