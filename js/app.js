@@ -1048,23 +1048,130 @@ function pickSoundFontFile() {
   });
 }
 
+const SOUND_FONT_CACHE_KEY = "gw2Instruments.sf2.v1";
+
+async function readSoundFontFromCache() {
+  try {
+    if (!("indexedDB" in window)) return null;
+    const db = await openSoundFontDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction("sf2", "readonly");
+      const req = tx.objectStore("sf2").get(SOUND_FONT_CACHE_KEY);
+      req.onsuccess = () => {
+        const row = req.result;
+        if (row?.buffer instanceof ArrayBuffer && row.buffer.byteLength > 1000) {
+          resolve(row.buffer);
+        } else {
+          resolve(null);
+        }
+      };
+      req.onerror = () => reject(req.error);
+    });
+  } catch (e) {
+    console.warn("SoundFont cache read failed", e);
+    return null;
+  }
+}
+
+async function writeSoundFontToCache(buffer) {
+  try {
+    if (!("indexedDB" in window) || !(buffer instanceof ArrayBuffer)) return;
+    const db = await openSoundFontDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction("sf2", "readwrite");
+      tx.objectStore("sf2").put({
+        id: SOUND_FONT_CACHE_KEY,
+        buffer,
+        savedAt: Date.now(),
+        byteLength: buffer.byteLength
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) {
+    console.warn("SoundFont cache write failed (storage may be full)", e);
+  }
+}
+
+function openSoundFontDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("gw2-midi-soundfont", 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains("sf2")) {
+        db.createObjectStore("sf2", { keyPath: "id" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Fetch with byte progress so mobile users see it's not frozen. */
+async function fetchSoundFontWithProgress(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+  const total = Number(response.headers.get("Content-Length")) || 0;
+  // Streaming progress when the body is readable
+  if (!response.body || !response.body.getReader) {
+    setSoundFontStatusMessage("Downloading SoundFont (≈43 MB)…");
+    return response.arrayBuffer();
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let received = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.byteLength;
+    if (total > 0) {
+      const pct = Math.min(99, Math.round((received / total) * 100));
+      const mb = (received / (1024 * 1024)).toFixed(1);
+      const totalMb = (total / (1024 * 1024)).toFixed(0);
+      setSoundFontStatusMessage(`Downloading SoundFont… ${pct}% (${mb}/${totalMb} MB)`);
+    } else {
+      const mb = (received / (1024 * 1024)).toFixed(1);
+      setSoundFontStatusMessage(`Downloading SoundFont… ${mb} MB`);
+    }
+  }
+
+  const out = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out.buffer;
+}
+
 async function loadSoundFontBuffer() {
   // Prefer a previously picked file (file:// path)
   if (soundFontEngine.pickedBuffer) {
     return soundFontEngine.pickedBuffer;
   }
 
-  // Try normal fetch (works when served over http:// or https://)
+  // Instant path: cached from a previous visit (huge win on mobile)
+  setSoundFontStatusMessage("Checking SoundFont cache…");
+  const cached = await readSoundFontFromCache();
+  if (cached) {
+    setSoundFontStatusMessage("Loaded SoundFont from cache…");
+    soundFontEngine.pickedBuffer = cached;
+    return cached;
+  }
+
+  // Try network fetch (works on https / http hosts like GitHub Pages)
   try {
-    const response = await fetch("assets/gw2Instruments.sf2");
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    setSoundFontStatusMessage("Downloading SoundFont…");
-    const buffer = await response.arrayBuffer();
+    const buffer = await fetchSoundFontWithProgress("assets/gw2Instruments.sf2");
     if (!buffer || buffer.byteLength < 1000) {
       throw new Error("SoundFont file is empty or too small");
     }
+    // Cache for next visit (non-blocking)
+    writeSoundFontToCache(buffer);
+    soundFontEngine.pickedBuffer = buffer;
     return buffer;
   } catch (fetchError) {
     console.warn(
@@ -1075,6 +1182,7 @@ async function loadSoundFontBuffer() {
     soundFontEngine.status = "needs-file";
     const buffer = await pickSoundFontFile();
     soundFontEngine.pickedBuffer = buffer;
+    writeSoundFontToCache(buffer);
     return buffer;
   }
 }
@@ -1129,10 +1237,15 @@ async function ensureSoundFontReady() {
       node.connect(gainNode);
       gainNode.connect(ctx.destination);
 
-      setSoundFontStatusMessage("Loading SoundFont samples (≈43 MB)…");
       const sfBuffer = await loadSoundFontBuffer();
 
-      setSoundFontStatusMessage("Initializing synthesizer…");
+      // Parsing ~43 MB into FluidSynth WASM is the slow step on phones (CPU/memory).
+      setSoundFontStatusMessage(
+        "Initializing synthesizer… (first time can take 30–90s on mobile)"
+      );
+      // Yield so the status text paints before the heavy WASM work blocks the main thread
+      await new Promise(r => setTimeout(r, 50));
+
       soundFontEngine.soundFontId = await synth.loadSFont(sfBuffer);
       soundFontEngine.synth = synth;
       soundFontEngine.node = node;
@@ -1851,9 +1964,11 @@ const piano = {
    */
   baseMidi: 48,
 
-  /* Release time after a key is released, in seconds. */
-
-
+  /**
+   * Uniform octave shift applied to the current keyboard window so the whole
+   * visible octave fits the selected SoundFont preset (same logic as tracks).
+   */
+  playbackShift: 0,
 
   activeNotes: new Map(),
 
@@ -2142,27 +2257,96 @@ function renderPiano() {
 }
 
 
-/*
- * Return the MIDI base for the selected octave.
+/**
+ * Standard GW2 UI octave base: Low=C3, Mid=C4, High=C5 (MIDI 48 / 60 / 72).
  */
 function getCurrentOctaveBase() {
-
-  return piano.baseMidi +
-    piano.octaveIndex[
-      piano.currentOctave
-    ] * 12;
-
+  return piano.baseMidi + piano.octaveIndex[piano.currentOctave] * 12;
 }
 
-
-/*
- * Convert semitone offset to an absolute MIDI note.
+/**
+ * Instruments whose samples sit below the normal GW2 piano (C3+) and should
+ * map Low/Mid across their own range. High is always disabled for these.
+ *   Bass (33): 36–60   Verdarach (58): 24–60
  */
+const BASS_LIKE_PROGRAMS = new Set([33, 58]);
+
+/**
+ * Sounding MIDI base for the piano under the current preset.
+ *
+ * Bass-like: Low = lowest instrument octave, Mid = next, High = disabled.
+ * Everything else: fixed GW2 layout C3–C4 / C4–C5 / C5–C6.
+ */
+function getPianoSoundingBase() {
+  const program = piano.selectedSoundFontProgram;
+  const octaveIndex = piano.octaveIndex[piano.currentOctave]; // 0, 1, 2
+
+  if (BASS_LIKE_PROGRAMS.has(program)) {
+    const [lo, hi] = SOUND_FONT_KEY_RANGES[program] || [36, 60];
+    // Only Low (0) and Mid (1) are used; High is disabled in isPianoOctaveAvailable
+    const step = Math.min(octaveIndex, 1);
+    let base = lo + step * 12;
+    if (base + 12 > hi) base = Math.max(lo, hi - 12);
+    if (base < lo) base = lo;
+    return base;
+  }
+
+  return getCurrentOctaveBase();
+}
+
+/** Convert key semitone (0–12) to the MIDI note that is actually played. */
 function getPianoMidi(semitone) {
+  return getPianoSoundingBase() + semitone;
+}
 
-  return getCurrentOctaveBase() +
-    semitone;
+function updatePianoPlaybackShift() {
+  piano.playbackShift = getPianoSoundingBase() - getCurrentOctaveBase();
+  return piano.playbackShift;
+}
 
+/**
+ * Whether a UI octave is usable for the current SoundFont preset.
+ *
+ * Rules (from real SF2 zone ranges):
+ * - Bass / Verdarach: Low + Mid only (custom mapping); High disabled
+ * - Horn (56): Low allowed (samples from E3 / 52 cover most of Low)
+ * - Low:  otherwise must reach C3 or below (lo ≤ 48)
+ * - High: instrument must reach near C6 (hi ≥ 83)
+ * - Mid:  instrument must cover some of C4–C5 (lo ≤ 72 && hi ≥ 60)
+ */
+function isPianoOctaveAvailable(octaveName) {
+  const program = piano.selectedSoundFontProgram;
+
+  if (BASS_LIKE_PROGRAMS.has(program)) {
+    return octaveName === "low" || octaveName === "mid";
+  }
+
+  const [lo, hi] = SOUND_FONT_KEY_RANGES[program] || DEFAULT_KEY_RANGE;
+
+  if (octaveName === "low") {
+    // Horn (52–88): Low is usable. Bells/Choir Bell/Flute start higher → no Low.
+    if (program === 56) return true;
+    return lo <= 48;
+  }
+  if (octaveName === "high") {
+    // Must reach near C6 (Pipe Organ tops at 83; full C6 instruments at 84+)
+    return hi >= 83;
+  }
+  // mid
+  return lo <= 72 && hi >= 60;
+}
+
+/** Nearest available octave name, preferring mid → high → low. */
+function getNearestAvailablePianoOctave(preferred) {
+  const order = preferred === "high"
+    ? ["high", "mid", "low"]
+    : preferred === "low"
+      ? ["low", "mid", "high"]
+      : ["mid", "high", "low"];
+  for (const name of order) {
+    if (isPianoOctaveAvailable(name)) return name;
+  }
+  return "mid";
 }
 
 
@@ -2187,17 +2371,17 @@ function startPianoNote(semitone, buttonElement) {
   // don't break release tracking for held notes.
   if (piano.activeNotes.has(semitone)) return;
 
+  // Sounding pitch for the current instrument + UI octave (Low/Mid/High)
   const midiNote = getPianoMidi(semitone);
   if (buttonElement) buttonElement.classList.add("active");
   const noteName = getPianoNoteLabel(semitone);
   pianoElements.status.textContent = `Loading SoundFont · ${noteName}`;
 
-  // The piano uses the same bundled SoundFont as MIDI tracks. No oscillator
-  // fallback is created, so the selected preset is always the actual sound.
   const pendingVoice = {
     soundFont: false,
     pending: true,
     midi: midiNote,
+    trackShift: 0,
     semitone,
     button: buttonElement
   };
@@ -2211,14 +2395,15 @@ function startPianoNote(semitone, buttonElement) {
         : "SoundFont failed to load. Check assets/gw2Instruments.sf2 and the browser console.";
       return;
     }
-    // Cancelled (released) or replaced while loading
     if (piano.activeNotes.get(semitone) !== pendingVoice) return;
     const channel = 15;
+    const program = piano.selectedSoundFontProgram;
     prepareSoundFontChannel(channel, {
       playbackInstrument: "piano",
-      selectedSoundFontProgram: piano.selectedSoundFontProgram
+      selectedSoundFontProgram: program
     });
-    const playMidi = soundFontNoteOn(channel, midiNote, 120);
+    // midiNote is already mapped into the instrument range — no extra shift
+    const playMidi = soundFontNoteOn(channel, midiNote, 120, program, 0);
     if (playMidi == null) {
       piano.activeNotes.delete(semitone);
       if (buttonElement) buttonElement.classList.remove("active");
@@ -2230,23 +2415,30 @@ function startPianoNote(semitone, buttonElement) {
       channel,
       midi: midiNote,
       playMidi,
+      trackShift: 0,
       semitone,
       button: buttonElement
     });
-    const folded = playMidi !== midiNote ? ` → ${playMidi}` : "";
-    pianoElements.status.textContent = `Playing ${noteName} · MIDI ${midiNote}${folded}`;
+    pianoElements.status.textContent = `Playing ${noteName} · MIDI ${playMidi}`;
   });
 }
 
 /*
  * Stop one piano note. Uses the MIDI stored when the note started so
- * release still works after an octave change.
+ * release still works after an octave or instrument change.
  */
 function stopPianoNote(semitone) {
   const voice = piano.activeNotes.get(semitone);
   if (!voice) return;
 
-  if (voice.soundFont) soundFontNoteOff(voice.channel, voice.midi);
+  if (voice.soundFont) {
+    soundFontNoteOff(
+      voice.channel,
+      voice.midi,
+      piano.selectedSoundFontProgram,
+      voice.trackShift || 0
+    );
+  }
   if (voice.button) voice.button.classList.remove("active");
   piano.activeNotes.delete(semitone);
 }
@@ -2257,7 +2449,14 @@ function stopPianoNote(semitone) {
  */
 function stopAllPianoNotes() {
   for (const voice of piano.activeNotes.values()) {
-    if (voice.soundFont) soundFontNoteOff(voice.channel, voice.midi);
+    if (voice.soundFont) {
+      soundFontNoteOff(
+        voice.channel,
+        voice.midi,
+        piano.selectedSoundFontProgram,
+        voice.trackShift || 0
+      );
+    }
     if (voice.button) voice.button.classList.remove("active");
   }
   soundFontAllNotesOff(15);
@@ -2297,17 +2496,21 @@ function getPianoNoteLabel(
  * Change octave by -1 / +1.
  */
 function changePianoOctave(direction) {
-  const current = piano.octaveIndex[piano.currentOctave];
-  const next = Math.max(0, Math.min(2, current + direction));
   const names = ["low", "mid", "high"];
-  const nextName = names[next];
+  const current = piano.octaveIndex[piano.currentOctave];
+  // Step through octaves, skipping any the current instrument cannot play
+  let next = current;
+  for (let step = 0; step < 3; step++) {
+    next = Math.max(0, Math.min(2, next + direction));
+    if (isPianoOctaveAvailable(names[next])) break;
+    if (next === 0 || next === 2) break; // hit the edge
+  }
 
-  if (nextName === piano.currentOctave) return;
+  const nextName = names[next];
+  if (!isPianoOctaveAvailable(nextName) || nextName === piano.currentOctave) return;
 
   piano.currentOctave = nextName;
-
   // Keep currently held notes sounding at their original pitch until release.
-  // Do not call stopAllPianoNotes() — that was cutting the note on octave change.
   updatePianoOctaveUI();
 }
 
@@ -2316,47 +2519,40 @@ function changePianoOctave(direction) {
  * Update octave label, button states and help text.
  */
 function updatePianoOctaveUI() {
+  // If current octave isn't playable for this instrument, jump to nearest that is
+  if (!isPianoOctaveAvailable(piano.currentOctave)) {
+    piano.currentOctave = getNearestAvailablePianoOctave(piano.currentOctave);
+  }
 
-  const name =
-    piano.octaveNames[
-      piano.currentOctave
-    ];
+  const name = piano.octaveNames[piano.currentOctave];
+  updatePianoPlaybackShift();
 
+  const soundingBase = getPianoSoundingBase();
+  const sLowOct = Math.floor(soundingBase / 12) - 1;
+  const sHighOct = Math.floor((soundingBase + 12) / 12) - 1;
 
-  const baseMidi =
-    getCurrentOctaveBase();
+  const preset =
+    SOUND_FONT_PRESETS.find(p => p.program === piano.selectedSoundFontProgram)?.name ||
+    "Sound";
 
-  const lowC =
-    baseMidi;
+  pianoElements.display.textContent = String(name || "mid").toUpperCase();
+  pianoElements.status.textContent = `${preset} · C${sLowOct}–C${sHighOct}`;
 
-  const highC =
-    baseMidi + 12;
+  // Disable Low/High when this instrument has no samples in that window
+  // (and disable stepping further in that direction)
+  const canGoLower =
+    piano.currentOctave !== "low" &&
+    (piano.currentOctave === "high"
+      ? isPianoOctaveAvailable("mid") || isPianoOctaveAvailable("low")
+      : isPianoOctaveAvailable("low"));
+  const canGoHigher =
+    piano.currentOctave !== "high" &&
+    (piano.currentOctave === "low"
+      ? isPianoOctaveAvailable("mid") || isPianoOctaveAvailable("high")
+      : isPianoOctaveAvailable("high"));
 
-
-  /*
-   * MIDI octave number.
-   */
-  const lowOctave =
-    Math.floor(lowC / 12) - 1;
-
-  const highOctave =
-    Math.floor(highC / 12) - 1;
-
-
-  pianoElements.display.textContent =
-    String(name || "mid").toUpperCase();
-
-
-  pianoElements.status.textContent =
-    `Ready · C${lowOctave}–C${highOctave}`;
-
-
-  pianoElements.octaveDown.disabled =
-    piano.currentOctave === "low";
-
-  pianoElements.octaveUp.disabled =
-    piano.currentOctave === "high";
-
+  pianoElements.octaveDown.disabled = !canGoLower;
+  pianoElements.octaveUp.disabled = !canGoHigher;
 }
 
 
@@ -2618,11 +2814,17 @@ if (pianoInstrumentSelect) {
   pianoInstrumentSelect.addEventListener("change", async () => {
     piano.selectedSoundFontProgram = Number(pianoInstrumentSelect.value);
     stopAllPianoNotes();
+    // Always reset to Mid when switching instrument (or nearest if Mid is N/A)
+    piano.currentOctave = isPianoOctaveAvailable("mid")
+      ? "mid"
+      : getNearestAvailablePianoOctave("mid");
     if (soundFontEngine.status !== "ready") await ensureSoundFontReady();
-    const preset = SOUND_FONT_PRESETS.find(item => item.program === piano.selectedSoundFontProgram);
     if (soundFontEngine.status === "ready") {
-      prepareSoundFontChannel(15, { playbackInstrument: "piano", selectedSoundFontProgram: piano.selectedSoundFontProgram });
-      pianoElements.status.textContent = `Sound: ${preset?.name || "Custom"}`;
+      prepareSoundFontChannel(15, {
+        playbackInstrument: "piano",
+        selectedSoundFontProgram: piano.selectedSoundFontProgram
+      });
+      updatePianoOctaveUI();
     } else {
       pianoElements.status.textContent = soundFontEngine.lastError
         ? `SoundFont failed: ${soundFontEngine.lastError}`
