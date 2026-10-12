@@ -106,5 +106,5 @@ The bundled `assets/gw2Instruments.sf2` SoundFont includes these melodic presets
 
 - Notation reference: [Powerina's GW2 notation](https://gw2-songbook.com/song/568)
 - SoundFont playback: [FluidSynth](https://www.fluidsynth.org/) WebAssembly via [`js-synthesizer`](https://github.com/paulrosen/JS-Synthesizer)
-- SounFont File: [Ori from Opus](https://www.gw2opus.com/gw2-instruments-in-musescore-installation-guide/)
+- SounFont File: [Sefja for soundFont]
 
