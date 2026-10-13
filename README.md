@@ -105,6 +105,8 @@ The bundled `assets/gw2Instruments.sf2` SoundFont includes these melodic presets
 ## 🙌 Credits
 
 - Notation reference: [Powerina's GW2 notation](https://gw2-songbook.com/song/568)
+- Playable piano: [Sarya's Music Thingy](https://sauryelle.github.io/gw2-virtual-piano/)
 - SoundFont playback: [FluidSynth](https://www.fluidsynth.org/) WebAssembly via [`js-synthesizer`](https://github.com/paulrosen/JS-Synthesizer)
-- SounFont File: [Sefja for soundFont]
+- SoundFont file: Sefja and Jenpai
+- Resources material to be tested: Stump and Mellow
 

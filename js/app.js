@@ -712,9 +712,30 @@ function convertTrack(
       }
 
       const uniqueNotes = [...new Set(cell.map(note => note.midi))].sort((a, b) => a - b);
-      let token = uniqueNotes
-        .map(noteToHtml)
-        .join('<span class="accidental">/</span>');
+      const chordPitches = uniqueNotes.map(note => ({ midi: note, pitch: getPitchText(note) }));
+      const chordClasses = new Set(chordPitches.map(item => item.pitch.className));
+      let token;
+
+      // If every note in a chord uses the same octave marker, apply the
+      // marker once around the chord: [4]/[7] becomes [4/7], etc.
+      if (uniqueNotes.length > 1 && chordClasses.size === 1 && chordPitches[0].pitch.className) {
+        const octaveClass = chordPitches[0].pitch.className;
+        const marker = octaveClass === "low" ? ["[", "]"]
+          : octaveClass === "high" ? ["(", ")"]
+          : chordPitches.every(item => item.pitch.text.startsWith("{")) ? ["{", "}"]
+          : ["&lt;", "&gt;"];
+        const noteTexts = chordPitches.map(item => {
+          let text = item.pitch.text;
+          if (octaveClass === "low" || octaveClass === "high") text = text.slice(1, -1);
+          else if (text.startsWith("{")) text = text.slice(1, -1);
+          else if (text.startsWith("<")) text = text.slice(1, -1);
+          return text.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+        });
+        token = `<span class="${octaveClass} octave-compressed">${marker[0]}${noteTexts.join('<span class="accidental">/</span>')}${marker[1]}</span>`;
+      } else {
+        token = chordPitches.map(item => noteToHtml(item.midi).replace(/<span class="([^"]*)">([\s\S]*?)<\/span>/, (whole, cls, text) => `<span class="${cls}">${text}</span>`))
+          .join('<span class="accidental">/</span>');
+      }
 
       if (uniqueNotes.length > 1) {
         token = `<span class="chord">${token}</span>`;
@@ -731,20 +752,95 @@ function convertTrack(
     beats.push(`<span class="playback-beat-group" data-beat-index="${beatIndex}">${tokens.join("")}</span>`);
   }
 
+  // Compress repeated octave markers across adjacent notes, even when a bar
+  // also contains notes in the normal octave. Playback spans remain intact.
+  const simplifyOctaveBar = barBeats => {
+    let html = barBeats.map((beat, i) => `${i === 0 ? "" : i === 2 ? "  " : " "}${beat}`).join("");
+
+    // For example: (3) (2) (2) (1) -> (32) (2) (21)
+    // Only merge directly adjacent marked notes of the same octave; rests,
+    // normal-octave notes, chords, and octave changes naturally break a run.
+    const markerInfo = {
+      low: { open: "[", close: "]" },
+      high: { open: "(", close: ")" },
+      outsideLow: { open: "{", close: "}" },
+      outsideHigh: { open: "&lt;", close: "&gt;" }
+    };
+    const tokenPattern = /<span class="playback-beat playback-note"[^>]*>(<span class="(?:low|high|outside)">[\s\S]*?<\/span>)<\/span>/g;
+    const tokens = [...html.matchAll(tokenPattern)];
+    const candidates = tokens.map((m, index) => {
+      const content = m[1];
+      const pitch = content.match(/^<span class="(low|high|outside)">([\s\S]*?)<\/span>$/);
+      if (!pitch) return { index, match: m, cls: null, value: null };
+      const cls = pitch[1];
+      const value = pitch[2];
+      if (cls === "low" && /^\[[^\[\]]+\]$/.test(value)) return { index, match: m, cls, value: value.slice(1, -1) };
+      if (cls === "high" && /^\([^()]+\)$/.test(value)) return { index, match: m, cls, value: value.slice(1, -1) };
+      if (cls === "outside" && /^\{[^{}]+\}$/.test(value)) return { index, match: m, cls: "outsideLow", value: value.slice(1, -1) };
+      if (cls === "outside" && /^&lt;[\s\S]+&gt;$/.test(value)) return { index, match: m, cls: "outsideHigh", value: value.slice(4, -4) };
+      return { index, match: m, cls: null, value: null };
+    });
+
+    // Work backwards so replacing a token never invalidates earlier offsets.
+    const replacements = [];
+    let i = 0;
+    while (i < candidates.length) {
+      const first = candidates[i];
+      if (!first.cls) { i++; continue; }
+      let end = i;
+      while (end + 1 < candidates.length && candidates[end + 1].cls === first.cls) {
+        const between = html.slice(candidates[end].match.index + candidates[end].match[0].length, candidates[end + 1].match.index);
+        // Permit only the visual spacing between note tokens, not bar separators.
+        if (!/^\s*$/.test(between)) break;
+        end++;
+      }
+      if (end > i) {
+        const info = markerInfo[first.cls];
+        for (let j = i; j <= end; j++) {
+          const item = candidates[j];
+          const open = j === i ? info.open : "";
+          const close = j === end ? info.close : "";
+          const newToken = item.match[0].replace(item.match[1], `<span class="${item.cls === "outsideLow" || item.cls === "outsideHigh" ? "outside" : item.cls}">${open}${item.value}${close}</span>`);
+          replacements.push({ start: item.match.index, end: item.match.index + item.match[0].length, value: newToken });
+        }
+      }
+      i = end + 1;
+    }
+    for (const r of replacements.sort((a, b) => b.start - a.start)) html = html.slice(0, r.start) + r.value + html.slice(r.end);
+    const pitchSpans = [...html.matchAll(/<span class="(low|high|outside)">([\s\S]*?)<\/span>/g)];
+    if (!pitchSpans.length) return html;
+
+    const classes = new Set(pitchSpans.map(match => match[1]));
+    const allNotesMarked = !/<span class="">/.test(html) &&
+      [...html.matchAll(/<span class="([^"]*)">([\s\S]*?)<\/span>/g)]
+        .filter(match => /^(low|high|outside)$/.test(match[1]) || /^[#]?[1-7]$/.test(match[2]))
+        .every(match => /^(low|high|outside)$/.test(match[1]));
+    if (classes.size !== 1 || !allNotesMarked) return html;
+
+    const octaveClass = [...classes][0];
+    const allInner = pitchSpans.map(match => match[2]);
+    let open, close;
+    if (octaveClass === "low") { open = "["; close = "]"; }
+    else if (octaveClass === "high") { open = "("; close = ")"; }
+    else if (allInner.every(text => text.startsWith("{") && text.endsWith("}"))) { open = "{"; close = "}"; }
+    else if (allInner.every(text => text.startsWith("&lt;") && text.endsWith("&gt;"))) { open = "&lt;"; close = "&gt;"; }
+    else return html;
+
+    const inner = html.replace(/<span class="(?:low|high|outside)">([\s\S]*?)<\/span>/g, "$1")
+      .split(open).join("").split(close).join("");
+    return `<span class="${octaveClass} octave-compressed">${open}${inner}${close}</span>`;
+  };
+
   const lines = [];
   for (let lineStart = 0; lineStart < beats.length; lineStart += 12) {
     const lineBeats = beats.slice(lineStart, lineStart + 12);
     let line = "";
 
-    lineBeats.forEach((beat, localBeatIndex) => {
-      if (localBeatIndex > 0) {
-        if (localBeatIndex % 4 === 0) line += '<span class="bar"> | </span>';
-        else if (localBeatIndex % 2 === 0) line += "  ";
-        else line += " ";
-      }
-      line += beat;
-    });
-
+    for (let barStart = 0; barStart < lineBeats.length; barStart += 4) {
+      if (barStart > 0) line += '<span class="bar"> | </span>';
+      const bar = lineBeats.slice(barStart, barStart + 4);
+      line += simplifyOctaveBar(bar);
+    }
     lines.push(line);
   }
 

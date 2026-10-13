@@ -725,6 +725,73 @@ select:focus {
   font-size: 11px;
 }
 
+/* ============================================================
+   APP CREDITS FOOTER — simple, matching the header
+   ============================================================ */
+
+.credits-footer {
+  width: 100%;
+  margin: 24px 0 0;
+  border-top: 1px solid #29385b;
+  background: #080d1cbb;
+}
+
+.credits-inner {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 20px clamp(18px, 4vw, 60px) 24px;
+}
+
+.credits-heading h2,
+.credits-inner h2 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.credits-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.credits-list li {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.credit-label {
+  color: var(--text);
+}
+
+.credits-list a {
+  color: var(--purple, #b9a2ff);
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+
+.credits-list a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 620px) {
+  .credits-inner {
+    padding: 18px 18px 22px;
+  }
+
+  .credits-list {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+}
+
 .warning {
   margin-top: 10px;
 
