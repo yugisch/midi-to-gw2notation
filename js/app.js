@@ -332,6 +332,12 @@ async function convertMidi() {
         ppq: midi.header.ppq
       }));
 
+    // Time signatures from the MIDI (Tone.js: [{ ticks, timeSignature: [num, den] }, ...])
+    const timeSignatures = normalizeTimeSignatures(
+      midi.header?.timeSignatures,
+      midi.header?.ppq || 480
+    );
+
     const transpose =
       elements.transposeMode.value === "auto"
         ? findBestTranspose(tracks)
@@ -345,7 +351,8 @@ async function convertMidi() {
             index,
             elements.beatGrid.value,
             transpose,
-            elements.preserveFastNotes.checked
+            elements.preserveFastNotes.checked,
+            timeSignatures
           )
         )
         .filter(Boolean);
@@ -365,6 +372,11 @@ async function convertMidi() {
         ? "Original key"
         : `${transpose > 0 ? "+" : ""}${transpose} semitone${Math.abs(transpose) === 1 ? "" : "s"}`;
 
+    const primaryTs = timeSignatures[0];
+    const tsLabel = primaryTs
+      ? `${primaryTs.numerator}/${primaryTs.denominator}`
+      : "4/4";
+
     elements.status.textContent =
       `${conversionResults.length} track${
         conversionResults.length === 1 ? "" : "s"
@@ -373,7 +385,7 @@ async function convertMidi() {
           (total, track) => total + track.noteCount,
           0
         )
-      } notes · ${transposeLabel}`;
+      } notes · ${transposeLabel} · ${tsLabel}`;
 
     enableExportButtons();
 
@@ -663,12 +675,58 @@ const PLAYBACK_INSTRUMENT_LABELS = {
   synth: "Synth"
 };
 
+/**
+ * Normalize MIDI header time signatures into a sorted list.
+ * Each entry: { ticks, numerator, denominator, beatsPerBar }
+ * beatsPerBar is measured in quarter-note beats (our notation grid unit):
+ *   4/4 → 4,  3/4 → 3,  6/8 → 3,  2/2 → 4
+ */
+function normalizeTimeSignatures(rawList, ppq = 480) {
+  const list = Array.isArray(rawList) ? rawList : [];
+  const normalized = list
+    .map(entry => {
+      const pair = entry?.timeSignature || entry;
+      const numerator = Number(Array.isArray(pair) ? pair[0] : entry?.numerator) || 4;
+      const denominator = Number(Array.isArray(pair) ? pair[1] : entry?.denominator) || 4;
+      const ticks = Number(entry?.ticks) || 0;
+      const beatsPerBar = Math.max(1, numerator * (4 / denominator));
+      return { ticks, numerator, denominator, beatsPerBar };
+    })
+    .filter(ts => Number.isFinite(ts.beatsPerBar) && ts.beatsPerBar > 0)
+    .sort((a, b) => a.ticks - b.ticks);
+
+  if (!normalized.length) {
+    return [{ ticks: 0, numerator: 4, denominator: 4, beatsPerBar: 4 }];
+  }
+  // Ensure we always have a signature at tick 0
+  if (normalized[0].ticks > 0) {
+    normalized.unshift({
+      ticks: 0,
+      numerator: normalized[0].numerator,
+      denominator: normalized[0].denominator,
+      beatsPerBar: normalized[0].beatsPerBar
+    });
+  }
+  return normalized;
+}
+
+/** Beats-per-bar (in quarter notes) active at a given tick. */
+function beatsPerBarAtTick(tick, timeSignatures) {
+  let current = timeSignatures[0] || { beatsPerBar: 4 };
+  for (const ts of timeSignatures) {
+    if (ts.ticks <= tick) current = ts;
+    else break;
+  }
+  return current.beatsPerBar;
+}
+
 function convertTrack(
   track,
   index,
   beatGrid,
   transpose = 0,
-  preserveFastNotes = true
+  preserveFastNotes = true,
+  timeSignatures = null
 ) {
 
   if (!track.notes.length) {
@@ -680,6 +738,10 @@ function convertTrack(
   const requestedGrid = beatGrid === "auto" ? 1 : Number(beatGrid);
   const tempoBpm = Number(elements.tempo?.value) || 120;
   const secondsPerBeat = 60 / tempoBpm;
+  const tsList = timeSignatures && timeSignatures.length
+    ? timeSignatures
+    : [{ ticks: 0, numerator: 4, denominator: 4, beatsPerBar: 4 }];
+  const primaryBeatsPerBar = tsList[0].beatsPerBar || 4;
 
   const toTicks = note => {
     if (Number.isFinite(note.ticks)) return note.ticks;
@@ -909,18 +971,54 @@ function convertTrack(
     return `<span class="${octaveClass} octave-compressed">${open}${inner}${close}</span>`;
   };
 
+  /*
+   * Build lines with "|" at real measure boundaries from the time signature.
+   * Example: 4/4 → every 4 beats, 3/4 → every 3, 6/8 → every 3 quarter-beats.
+   * Time-signature changes mid-song are respected when present in the MIDI.
+   */
   const lines = [];
-  for (let lineStart = 0; lineStart < beats.length; lineStart += 12) {
-    const lineBeats = beats.slice(lineStart, lineStart + 12);
-    let line = "";
+  // Prefer ~3 measures per line (falls back toward ~12 quarter-beats of width)
+  const measuresPerLine = Math.max(1, Math.round(12 / primaryBeatsPerBar));
 
-    for (let barStart = 0; barStart < lineBeats.length; barStart += 4) {
-      if (barStart > 0) line += '<span class="bar"> | </span>';
-      const bar = lineBeats.slice(barStart, barStart + 4);
-      line += simplifyOctaveBar(bar);
+  let line = "";
+  let measuresOnLine = 0;
+  let measureBeatCount = 0;
+  let measureChunks = []; // beat strings inside the current measure
+
+  const flushMeasure = (isLastOnLine) => {
+    if (!measureChunks.length) return;
+    if (line.length) line += '<span class="bar"> | </span>';
+    line += simplifyOctaveBar(measureChunks);
+    measureChunks = [];
+    measuresOnLine += 1;
+    if (!isLastOnLine && measuresOnLine >= measuresPerLine) {
+      lines.push(line);
+      line = "";
+      measuresOnLine = 0;
     }
-    lines.push(line);
+  };
+
+  for (let beatIndex = 0; beatIndex < beats.length; beatIndex++) {
+    const tick = beatIndex * ppq;
+    const bpb = beatsPerBarAtTick(tick, tsList);
+
+    // Starting a new measure after completing the previous one
+    if (measureBeatCount === 0 && measureChunks.length === 0 && beatIndex > 0) {
+      // boundary already handled by flush; nothing extra
+    }
+
+    measureChunks.push(beats[beatIndex]);
+    measureBeatCount += 1;
+
+    if (measureBeatCount + 1e-9 >= bpb) {
+      flushMeasure(false);
+      measureBeatCount = 0;
+    }
   }
+
+  // Remainder of the last (possibly incomplete) measure
+  if (measureChunks.length) flushMeasure(true);
+  if (line.length) lines.push(line);
 
   return {
     index,
@@ -945,7 +1043,9 @@ function convertTrack(
     })),
     effectiveGrid: Math.min(...effectiveGrids),
     requestedGrid: beatGrid,
-    transpose
+    transpose,
+    beatsPerBar: primaryBeatsPerBar,
+    timeSignature: `${tsList[0].numerator}/${tsList[0].denominator}`
   };
 }
 
