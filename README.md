@@ -2,17 +2,17 @@
 
 A web-based MIDI converter designed for Guild Wars 2 musicians.
 
-This application converts MIDI files into readable **Guild Wars 2 numeric music notation**, while providing tools to make the resulting notation easier to understand, edit, and play.
+This application converts **MIDI** (`.mid` / `.midi`) and **MuseScore** (`.mscz` / `.mscx`) files into readable **Guild Wars 2 numeric music notation**, while providing tools to make the resulting notation easier to understand, edit, and play.
 
-The project runs entirely in the browser.
+The project runs entirely in the browser. MuseScore files are turned into MIDI in the browser with [webmscore](https://github.com/LibreScore/webmscore) (first use downloads a ~9 MB WASM engine from the CDN).
 
 ---
 
 ## ✨ Features
 
-### 🎼 MIDI to GW2 Numeric Notation
+### 🎼 MIDI / MuseScore to GW2 Numeric Notation
 
-Upload a `.mid` / `.midi` file and convert its musical notes into Guild Wars 2 numeric notation.
+Upload a `.mid` / `.midi` or `.mscz` / `.mscx` file and convert its musical notes into Guild Wars 2 numeric notation.
 
 The converter supports:
 
@@ -106,6 +106,7 @@ The bundled `assets/gw2Instruments.sf2` SoundFont includes these melodic presets
 
 - Notation reference: [Powerina's GW2 notation](https://gw2-songbook.com/song/568)
 - Playable piano: [Sarya's Music Thingy](https://sauryelle.github.io/gw2-virtual-piano/)
+- Muscore to Midi: [webmscore](https://github.com/LibreScore/webmscore)
 - SoundFont playback: [FluidSynth](https://www.fluidsynth.org/) WebAssembly via [`js-synthesizer`](https://github.com/paulrosen/JS-Synthesizer)
 - SoundFont file: Sefja and Jenpai
 - Resources material to be tested: Stump and Mellow

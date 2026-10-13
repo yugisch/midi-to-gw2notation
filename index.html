@@ -20,7 +20,7 @@
       <div class="logo">♫</div>
       <div>
         <h1>MIDI to GW2 Numeric Notation</h1>
-        <p class="subtitle">Turn your MIDI file into Guild Wars 2 music notation</p>
+        <p class="subtitle">Turn MIDI or MuseScore files into Guild Wars 2 music notation</p>
       </div>
     </div>
 
@@ -41,13 +41,13 @@
 
         <div class="drop-zone" id="dropZone">
           <div class="drop-icon">♧</div>
-          <strong>Drop your MIDI file here</strong>
-          <small>or click to browse · .mid / .midi</small>
-          <input id="midiFile" type="file" accept=".mid,.midi,audio/midi">
+          <strong>Drop your score file here</strong>
+          <small>or click to browse · .mid / .midi / .mscz / .mscx</small>
+          <input id="midiFile" type="file" accept=".mid,.midi,.mscz,.mscx,audio/midi,application/x-musescore">
         </div>
 
         <div class="file-row">
-          <span id="fileName">No MIDI file selected</span>
+          <span id="fileName">No score file selected</span>
           <button id="clearFile" title="Clear file">×</button>
         </div>
 
@@ -95,7 +95,7 @@
         <small class="field-help">Automatically chooses a nearby transposition with fewer sharps while strongly preferring the 3-octave GW2 playable range.</small>
 
         <button class="primary-button" id="convertButton" disabled>
-          ✦ &nbsp; Convert MIDI
+          ✦ &nbsp; Convert score
         </button>
 
         <div id="errorMessage" class="warning"></div>
@@ -166,7 +166,7 @@
 
       <div class="output-header">
         <h2><span>♫</span> MIDI notation output</h2>
-        <div id="status" class="status">Waiting for a MIDI file</div>
+        <div id="status" class="status">Waiting for a score file</div>
       </div>
 
       <div class="global-player" aria-label="All tracks playback controls">
@@ -187,7 +187,7 @@
           <div>
             <div class="empty-note">♫</div>
             <strong>Your score will appear here</strong>
-            Upload a MIDI file to see each track or channel
+            Upload a MIDI or MuseScore (.mscz / .mscx) file to see each track
             converted into GW2 notation.
           </div>
         </div>
@@ -256,7 +256,6 @@
       <ul class="credits-list">
         <li><span class="credit-label">Notation reference:</span> <a href="https://gw2-songbook.com/song/568" target="_blank" rel="noopener noreferrer">Powerina’s GW2 notation</a></li>
         <li><span class="credit-label">Playable piano:</span> <a href="https://sauryelle.github.io/gw2-virtual-piano/" target="_blank" rel="noopener noreferrer">Sarya's Music Thingy</a></li>
-        <li><span class="credit-label">SoundFont playback:</span> <a href="https://www.fluidsynth.org/" target="_blank" rel="noopener noreferrer">FluidSynth</a> WebAssembly via <a href="https://github.com/paulrosen/JS-Synthesizer" target="_blank" rel="noopener noreferrer"><code>js-synthesizer</code></a></li>
         <li><span class="credit-label">SoundFont file:</span> Sefja and Jenpai</li>
         <li><span class="credit-label">Resources material to be tested:</span> Stump and Mellow</li>
       </ul>

@@ -132,14 +132,26 @@ elements.dropZone.addEventListener("drop", event => {
 });
 
 
+function isMidiFileName(name) {
+  return /\.midi?$/i.test(name || "");
+}
+
+function isMuseScoreFileName(name) {
+  return /\.msc[zx]$/i.test(name || "");
+}
+
+function isSupportedScoreFileName(name) {
+  return isMidiFileName(name) || isMuseScoreFileName(name);
+}
+
 function loadMidiFile(file) {
 
   if (!file) {
     return;
   }
 
-  if (!/\.midi?$/i.test(file.name)) {
-    showError("Please choose a .mid or .midi file.");
+  if (!isSupportedScoreFileName(file.name)) {
+    showError("Please choose a .mid, .midi, .mscz, or .mscx file.");
     return;
   }
 
@@ -151,8 +163,9 @@ function loadMidiFile(file) {
 
   clearError();
 
+  const kind = isMuseScoreFileName(file.name) ? "MuseScore" : "MIDI";
   elements.status.textContent =
-    `MIDI ready · ${(file.size / 1024).toFixed(1)} KB`;
+    `${kind} ready · ${(file.size / 1024).toFixed(1)} KB`;
 }
 
 
@@ -166,14 +179,14 @@ elements.clearFile.addEventListener("click", () => {
   elements.midiFile.value = "";
 
   elements.fileName.textContent =
-    "No MIDI file selected";
+    "No score file selected";
 
   elements.convertButton.disabled = true;
 
   clearError();
 
   elements.status.textContent =
-    "Waiting for a MIDI file";
+    "Waiting for a score file";
 
   showEmptyState();
 
@@ -223,6 +236,68 @@ elements.convertButton.addEventListener(
    5. MIDI CONVERSION
    ============================================================ */
 
+/**
+ * Lazy-load LibreScore webmscore (MuseScore WASM) only when an .mscz/.mscx is used.
+ * First load downloads ~9 MB of WASM from the CDN.
+ */
+let webMscoreReadyPromise = null;
+
+function ensureWebMscore() {
+  if (window.WebMscore) {
+    return window.WebMscore.ready.then(() => window.WebMscore);
+  }
+  if (webMscoreReadyPromise) return webMscoreReadyPromise;
+
+  webMscoreReadyPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/webmscore@1.2.1/webmscore.js";
+    script.async = true;
+    script.onload = () => {
+      if (!window.WebMscore) {
+        reject(new Error("webmscore script loaded but WebMscore is missing."));
+        return;
+      }
+      window.WebMscore.ready
+        .then(() => resolve(window.WebMscore))
+        .catch(reject);
+    };
+    script.onerror = () => {
+      webMscoreReadyPromise = null;
+      reject(new Error(
+        "Could not load the MuseScore engine (webmscore). Check your internet connection and try again."
+      ));
+    };
+    document.head.appendChild(script);
+  });
+
+  return webMscoreReadyPromise;
+}
+
+/**
+ * Convert a MuseScore .mscz / .mscx file to a MIDI ArrayBuffer using webmscore.
+ */
+async function museScoreFileToMidiArrayBuffer(file) {
+  elements.status.textContent = "Loading MuseScore engine…";
+  const WebMscore = await ensureWebMscore();
+
+  elements.status.textContent = "Reading MuseScore score…";
+  const data = new Uint8Array(await file.arrayBuffer());
+  const format = /\.mscx$/i.test(file.name) ? "mscx" : "mscz";
+
+  // doLayout=false = boost mode (much faster when we only need MIDI)
+  const score = await WebMscore.load(format, data, [], false);
+  try {
+    elements.status.textContent = "Converting MuseScore → MIDI…";
+    const midiBytes = await score.saveMidi(true, true);
+    return midiBytes.buffer.slice(
+      midiBytes.byteOffset,
+      midiBytes.byteOffset + midiBytes.byteLength
+    );
+  } finally {
+    try { score.destroy(); } catch (_) {}
+  }
+}
+
 async function convertMidi() {
 
   if (!midiFile) {
@@ -231,15 +306,18 @@ async function convertMidi() {
 
   elements.convertButton.disabled = true;
 
-  elements.status.textContent =
-    "Reading MIDI…";
+  const fromMuseScore = isMuseScoreFileName(midiFile.name);
+  elements.status.textContent = fromMuseScore
+    ? "Reading MuseScore score…"
+    : "Reading MIDI…";
 
   clearError();
 
   try {
 
-    const arrayBuffer =
-      await midiFile.arrayBuffer();
+    const arrayBuffer = fromMuseScore
+      ? await museScoreFileToMidiArrayBuffer(midiFile)
+      : await midiFile.arrayBuffer();
 
     /*
      * Midi is provided by @tonejs/midi.
@@ -304,7 +382,7 @@ async function convertMidi() {
 
     showError(
       error.message ||
-      "Could not read this MIDI file."
+      "Could not read this score file."
     );
 
     elements.status.textContent =
@@ -1917,7 +1995,7 @@ elements.downloadButton.addEventListener(
     link.href = url;
     link.download =
       ((midiFile && midiFile.name)
-        ? midiFile.name.replace(/\.midi?$/i, "")
+        ? midiFile.name.replace(/\.(midi?|msc[zx])$/i, "")
         : "gw2-notation") + ".txt";
 
     link.click();
