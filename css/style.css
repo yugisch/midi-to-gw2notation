@@ -925,6 +925,14 @@ select:focus {
   border-color: #526a9e;
 }
 
+.track-player .track-download-midi {
+  border-color: rgba(120, 180, 255, 0.35);
+}
+
+.global-player #downloadAllMidiButton {
+  border-color: rgba(120, 180, 255, 0.35);
+}
+
 .track-player.is-playing .track-play {
   border-color: var(--channel-color, #5eead4);
   color: var(--channel-color, #5eead4);

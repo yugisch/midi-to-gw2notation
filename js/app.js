@@ -91,6 +91,7 @@ const elements = {
   playAllButton: document.getElementById("playAllButton"),
   pauseAllButton: document.getElementById("pauseAllButton"),
   stopAllButton: document.getElementById("stopAllButton"),
+  downloadAllMidiButton: document.getElementById("downloadAllMidiButton"),
   globalPlaybackStatus: document.getElementById("globalPlaybackStatus"),
 
   copyButton: document.getElementById("copyButton"),
@@ -1145,6 +1146,7 @@ function renderChannels() {
                 <button type="button" class="track-play" title="Play this track">▶ Play</button>
                 <button type="button" class="track-pause" title="Pause this track">⏸ Pause</button>
                 <button type="button" class="track-stop" title="Stop this track">■ Stop</button>
+                <button type="button" class="track-download-midi" title="Download this track as WAV (rendered with your SoundFont)">⬇ WAV</button>
                 </div>
               </div>
             </div>
@@ -1898,6 +1900,9 @@ function setGlobalPlaybackEnabled(enabled) {
   elements.playAllButton.disabled = !enabled;
   elements.pauseAllButton.disabled = !enabled;
   elements.stopAllButton.disabled = !enabled;
+  if (elements.downloadAllMidiButton) {
+    elements.downloadAllMidiButton.disabled = !enabled;
+  }
 }
 
 function setGlobalPlaybackUI(status) {
@@ -2021,8 +2026,11 @@ function setupTrackPlayers() {
     player.querySelector(".track-play").addEventListener("click", () => playTrackPlayer(index));
     player.querySelector(".track-pause").addEventListener("click", () => pauseTrackPlayer(index));
     player.querySelector(".track-stop").addEventListener("click", () => stopTrackPlayer(index, true));
+    player.querySelector(".track-download-midi")?.addEventListener("click", () => downloadTrackAsWav(index));
   });
 }
+
+elements.downloadAllMidiButton?.addEventListener("click", downloadAllTracksAsWav);
 
 
 /* ============================================================
@@ -2032,6 +2040,287 @@ function setupTrackPlayers() {
 /** Strip null bytes (from some MIDI track names) that make Windows treat the file as UTF-16. */
 function sanitizeExportText(text) {
   return String(text ?? "").replace(/\u0000/g, "");
+}
+
+/* ---------- SoundFont offline render → WAV ---------- */
+
+function safeAudioFilename(name) {
+  return sanitizeExportText(name || "track")
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .replace(/\s+/g, "_")
+    .slice(0, 48) || "track";
+}
+
+/**
+ * Notes for export: same pitches as on-screen playback (including whole-track
+ * octave shift into the chosen instrument's sample range).
+ */
+function getExportNotesForTrack(track) {
+  const program = resolveSoundFontProgram(track);
+  const notes = track.playbackNotes || [];
+  const midis = notes.map(n => n.midi);
+  const shift = computeTrackOctaveShift(midis, program);
+  return notes.map(n => ({
+    midi: mapMidiForPlayback(n.midi, program, shift),
+    startBeat: n.startBeat,
+    durationBeats: n.durationBeats,
+    velocity: 100
+  }));
+}
+
+/** Encode stereo Float32 samples as 16-bit PCM WAV. */
+function encodeWavStereo(left, right, sampleRate) {
+  const n = left.length;
+  const dataSize = n * 4; // 2 channels × 2 bytes
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  const writeStr = (offset, str) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 2, true); // stereo
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 4, true);
+  view.setUint16(32, 4, true);
+  view.setUint16(34, 16, true);
+  writeStr(36, "data");
+  view.setUint32(40, dataSize, true);
+  let o = 44;
+  for (let i = 0; i < n; i++) {
+    let l = Math.max(-1, Math.min(1, left[i]));
+    let r = Math.max(-1, Math.min(1, right[i]));
+    view.setInt16(o, l < 0 ? l * 0x8000 : l * 0x7fff, true);
+    view.setInt16(o + 2, r < 0 ? r * 0x8000 : r * 0x7fff, true);
+    o += 4;
+  }
+  return buffer;
+}
+
+function downloadArrayBuffer(buffer, filename, mime) {
+  const blob = new Blob([buffer], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Render one or more tracks offline with the loaded GW2 SoundFont.
+ * trackSpecs: [{ channel, program, notes: [{midi, startBeat, durationBeats, velocity}] }]
+ */
+async function renderTracksToWavBuffer(trackSpecs, onProgress) {
+  const ready = await ensureSoundFontReady();
+  if (!ready || !soundFontEngine.synth) {
+    throw new Error(
+      soundFontEngine.lastError ||
+        "SoundFont is not ready. Load the SoundFont first (play a note or open the app over http)."
+    );
+  }
+
+  const synth = soundFontEngine.synth;
+  const ctx = getPlaybackAudioContext();
+  const sampleRate = ctx.sampleRate || 44100;
+  const tempoBpm = Number(elements.tempo?.value) || 120;
+  const secondsPerBeat = 60 / tempoBpm;
+  const gainMul = soundFontEngine.outputGain || 1;
+
+  // Stop live playback so we can borrow the synth without fighting it
+  stopAllTrackPlayers(true);
+  stopAllPianoNotes();
+  const prevGain = soundFontEngine.gainNode ? soundFontEngine.gainNode.gain.value : 1;
+  if (soundFontEngine.gainNode) soundFontEngine.gainNode.gain.value = 0;
+
+  try {
+    for (let ch = 0; ch < 16; ch++) soundFontAllNotesOff(ch);
+
+    // Build timeline of MIDI events (sample index)
+    const events = [];
+    let maxEndBeat = 0;
+
+    for (const spec of trackSpecs) {
+      const ch = (spec.channel ?? 0) & 0x0f;
+      const program = spec.program ?? 0;
+      try {
+        synth.midiProgramSelect(ch, soundFontEngine.soundFontId, 0, program);
+        synth.midiCC(ch, 7, 127);
+        synth.midiCC(ch, 11, 127);
+      } catch (_) {}
+
+      for (const note of spec.notes || []) {
+        const startBeat = Number(note.startBeat) || 0;
+        const durBeats = Math.max(0.05, Number(note.durationBeats) || 0.25);
+        const startSample = Math.round(startBeat * secondsPerBeat * sampleRate);
+        const endSample = Math.round((startBeat + durBeats) * secondsPerBeat * sampleRate);
+        const midi = Math.max(0, Math.min(127, note.midi | 0));
+        const vel = Math.max(1, Math.min(127, note.velocity ?? 100));
+        events.push({ sample: startSample, type: "on", ch, midi, vel });
+        events.push({ sample: endSample, type: "off", ch, midi });
+        maxEndBeat = Math.max(maxEndBeat, startBeat + durBeats);
+      }
+    }
+
+    events.sort((a, b) => a.sample - b.sample || (a.type === "off" ? -1 : 1));
+
+    // +1.5s tail so releases/reverb don't get cut off
+    const totalSamples = Math.max(
+      sampleRate,
+      Math.ceil(maxEndBeat * secondsPerBeat * sampleRate) + Math.ceil(1.5 * sampleRate)
+    );
+
+    const left = new Float32Array(totalSamples);
+    const right = new Float32Array(totalSamples);
+    const blockSize = 512;
+    const blockL = new Float32Array(blockSize);
+    const blockR = new Float32Array(blockSize);
+
+    let samplePos = 0;
+    let eventIndex = 0;
+    let lastYield = performance.now();
+
+    while (samplePos < totalSamples) {
+      // Fire all events at or before this block's start
+      while (eventIndex < events.length && events[eventIndex].sample <= samplePos) {
+        const ev = events[eventIndex++];
+        try {
+          if (ev.type === "on") synth.midiNoteOn(ev.ch, ev.midi, ev.vel);
+          else synth.midiNoteOff(ev.ch, ev.midi);
+        } catch (_) {}
+      }
+
+      const remaining = totalSamples - samplePos;
+      const thisBlock = Math.min(blockSize, remaining);
+
+      try {
+        synth.render([blockL, blockR]);
+      } catch (e) {
+        console.warn("synth.render failed", e);
+        blockL.fill(0);
+        blockR.fill(0);
+      }
+
+      if (thisBlock === blockSize) {
+        left.set(blockL, samplePos);
+        right.set(blockR, samplePos);
+      } else {
+        left.set(blockL.subarray(0, thisBlock), samplePos);
+        right.set(blockR.subarray(0, thisBlock), samplePos);
+      }
+
+      samplePos += thisBlock;
+
+      // Keep UI responsive on long songs
+      if (performance.now() - lastYield > 80) {
+        if (typeof onProgress === "function") {
+          onProgress(Math.min(1, samplePos / totalSamples));
+        }
+        await new Promise(r => setTimeout(r, 0));
+        lastYield = performance.now();
+      }
+    }
+
+    for (let ch = 0; ch < 16; ch++) soundFontAllNotesOff(ch);
+
+    // Apply the same output gain as live playback
+    if (gainMul !== 1) {
+      for (let i = 0; i < totalSamples; i++) {
+        left[i] *= gainMul;
+        right[i] *= gainMul;
+      }
+    }
+
+    return encodeWavStereo(left, right, sampleRate);
+  } finally {
+    for (let ch = 0; ch < 16; ch++) {
+      try { soundFontAllNotesOff(ch); } catch (_) {}
+    }
+    if (soundFontEngine.gainNode) soundFontEngine.gainNode.gain.value = prevGain;
+  }
+}
+
+function setExportStatus(message) {
+  if (elements.status) elements.status.textContent = message;
+}
+
+async function downloadTrackAsWav(index) {
+  const track = conversionResults[index];
+  if (!track) return;
+
+  const btn = document.querySelector(
+    `.track-player[data-player-index="${index}"] .track-download-midi`
+  );
+  if (btn) btn.disabled = true;
+
+  try {
+    setExportStatus(`Rendering WAV · ${track.name || "track"}…`);
+    const program = resolveSoundFontProgram(track);
+    const presetName =
+      SOUND_FONT_PRESETS.find(p => p.program === program)?.name || `program-${program}`;
+
+    const wav = await renderTracksToWavBuffer(
+      [
+        {
+          channel: 0,
+          program,
+          notes: getExportNotesForTrack(track)
+        }
+      ],
+      pct => setExportStatus(`Rendering WAV · ${track.name || "track"}… ${Math.round(pct * 100)}%`)
+    );
+
+    const base =
+      (midiFile && midiFile.name
+        ? midiFile.name.replace(/\.(midi?|msc[zx])$/i, "")
+        : "gw2") +
+      `_${safeAudioFilename(track.name)}_${safeAudioFilename(presetName)}`;
+    downloadArrayBuffer(wav, `${base}.wav`, "audio/wav");
+    setExportStatus(`Downloaded ${base}.wav`);
+  } catch (err) {
+    console.error(err);
+    showError(err.message || "WAV export failed");
+    setExportStatus("WAV export failed");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function downloadAllTracksAsWav() {
+  if (!conversionResults.length) return;
+
+  const btn = elements.downloadAllMidiButton;
+  if (btn) btn.disabled = true;
+
+  try {
+    setExportStatus("Rendering all tracks to WAV…");
+    const specs = conversionResults.map((track, index) => ({
+      channel: index % 15,
+      program: resolveSoundFontProgram(track),
+      notes: getExportNotesForTrack(track)
+    }));
+
+    const wav = await renderTracksToWavBuffer(specs, pct =>
+      setExportStatus(`Rendering all tracks… ${Math.round(pct * 100)}%`)
+    );
+
+    const base =
+      (midiFile && midiFile.name
+        ? midiFile.name.replace(/\.(midi?|msc[zx])$/i, "")
+        : "gw2") + "_all_tracks";
+    downloadArrayBuffer(wav, `${base}.wav`, "audio/wav");
+    setExportStatus(`Downloaded ${base}.wav`);
+  } catch (err) {
+    console.error(err);
+    showError(err.message || "WAV export failed");
+    setExportStatus("WAV export failed");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function getAllPlainText() {
