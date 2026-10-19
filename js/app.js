@@ -1037,6 +1037,8 @@ function convertTrack(
     instrumentNumber: Number.isInteger(track.instrument?.number) ? track.instrument.number : null,
     playbackInstrumentLabel: PLAYBACK_INSTRUMENT_LABELS[detectPlaybackInstrument(track, index)] || "Piano",
     selectedSoundFontProgram: getDefaultSoundFontProgram({ playbackInstrument: detectPlaybackInstrument(track, index) }),
+    /** Included in Play All / WAV all / Copy+Download txt (checkbox, default on). */
+    included: true,
     playbackNotes: events.map(event => ({
       midi: event.midi,
       startBeat: event.startTick / ppq,
@@ -1124,6 +1126,15 @@ function renderChannels() {
               style="--channel-color: ${track.color}"
             >
               <div class="channel-heading">
+                <label class="track-include" title="Include in Play All, WAV all, and text export">
+                  <input
+                    type="checkbox"
+                    class="track-include-check"
+                    data-track-index="${index}"
+                    ${track.included !== false ? "checked" : ""}
+                    aria-label="Include ${escapeHtml(track.name)} in Play All and export"
+                  >
+                </label>
                 <div class="channel-accent"></div>
                 <div>
                   <div class="channel-name">
@@ -1161,9 +1172,58 @@ function renderChannels() {
 
   setupTrackPlayers();
   setupTrackInstrumentSelectors();
+  setupTrackIncludeCheckboxes();
   setGlobalPlaybackUI("stopped");
   setGlobalPlaybackEnabled(true);
+  updateIncludedTracksUI();
 
+}
+
+/** Indices of tracks whose include checkbox is on (default: all). */
+function getIncludedTrackIndices() {
+  return conversionResults
+    .map((track, index) => (track.included !== false ? index : -1))
+    .filter(index => index >= 0);
+}
+
+function setupTrackIncludeCheckboxes() {
+  elements.channels.querySelectorAll(".track-include-check").forEach(input => {
+    input.addEventListener("change", () => {
+      const index = Number(input.dataset.trackIndex);
+      if (!conversionResults[index]) return;
+      conversionResults[index].included = input.checked;
+      const channel = elements.channels.querySelector(
+        `.channel[data-track-index="${index}"]`
+      );
+      channel?.classList.toggle("is-excluded", !input.checked);
+      updateIncludedTracksUI();
+    });
+  });
+}
+
+function updateIncludedTracksUI() {
+  const total = conversionResults.length;
+  const included = getIncludedTrackIndices().length;
+  conversionResults.forEach((track, index) => {
+    const channel = elements.channels.querySelector(
+      `.channel[data-track-index="${index}"]`
+    );
+    channel?.classList.toggle("is-excluded", track.included === false);
+  });
+  if (elements.globalPlaybackStatus && globalPlaybackState.status === "stopped") {
+    elements.globalPlaybackStatus.textContent =
+      total === 0
+        ? "Ready"
+        : included === total
+          ? `Ready · ${total} track${total === 1 ? "" : "s"}`
+          : `Ready · ${included} of ${total} selected`;
+  }
+  // Disable Play All / WAV all when nothing is selected
+  const any = included > 0;
+  if (elements.playAllButton) elements.playAllButton.disabled = !any;
+  if (elements.downloadAllMidiButton) {
+    elements.downloadAllMidiButton.disabled = !any;
+  }
 }
 
 
@@ -1802,8 +1862,11 @@ async function scheduleTrackFrom(index, offsetSeconds, sharedStartWall = null) {
   const trackShift = computeTrackOctaveShift(midis, program);
   state.trackShift = trackShift;
 
-  const startWall = sharedStartWall ?? (performance.now() / 1000 - offsetSeconds);
-  state.startedAt = startWall - offsetSeconds;
+  // songStartWall = wall-clock time of beat 0 (already accounts for offset when resuming).
+  // Do NOT subtract offsetSeconds again — that doubled the pause position and skipped notes.
+  const songStartWall =
+    sharedStartWall ?? (performance.now() / 1000 - offsetSeconds);
+  state.startedAt = songStartWall;
   state.status = "playing";
 
   state.track.playbackNotes.forEach(note => {
@@ -1881,12 +1944,15 @@ function updateTrackPlayerUI(index) {
   root.querySelector(".track-play").textContent = state?.status === "paused" ? "▶ Resume" : "▶ Play";
 }
 
-function getAllTrackDuration() {
-  return conversionResults.reduce(
+function getAllTrackDuration(onlyIncluded = true) {
+  const tracks = onlyIncluded
+    ? conversionResults.filter(t => t.included !== false)
+    : conversionResults;
+  return tracks.reduce(
     (max, track) =>
       Math.max(
         max,
-        track.playbackNotes.reduce(
+        (track.playbackNotes || []).reduce(
           (trackMax, note) => Math.max(trackMax, note.startBeat + note.durationBeats),
           0
         )
@@ -1908,12 +1974,23 @@ function setGlobalPlaybackEnabled(enabled) {
 function setGlobalPlaybackUI(status) {
   if (!elements.globalPlaybackStatus) return;
 
-  const labels = {
-    stopped: "Ready",
-    playing: "Playing all tracks",
-    paused: "Paused"
-  };
-  elements.globalPlaybackStatus.textContent = labels[status] || "Ready";
+  const total = conversionResults.length;
+  const included = getIncludedTrackIndices().length;
+  let label = "Ready";
+  if (status === "playing") {
+    label =
+      included === total
+        ? "Playing all tracks"
+        : `Playing ${included} of ${total} tracks`;
+  } else if (status === "paused") {
+    label = "Paused";
+  } else if (total > 0) {
+    label =
+      included === total
+        ? `Ready · ${total} track${total === 1 ? "" : "s"}`
+        : `Ready · ${included} of ${total} selected`;
+  }
+  elements.globalPlaybackStatus.textContent = label;
 
   elements.playAllButton?.classList.toggle("is-active", status === "playing");
   elements.pauseAllButton?.classList.toggle("is-active", status === "paused");
@@ -1944,7 +2021,11 @@ function clearGlobalPlaybackTimer() {
 }
 
 function playAllTrackPlayers() {
-  if (!conversionResults.length) return;
+  const included = getIncludedTrackIndices();
+  if (!included.length) {
+    showError("No tracks selected. Check at least one track to play.");
+    return;
+  }
 
   const ctx = getPlaybackAudioContext();
   if (ctx.state === "suspended") ctx.resume();
@@ -1953,6 +2034,7 @@ function playAllTrackPlayers() {
     ? globalPlaybackState.pausedAt
     : 0;
 
+  // Stop everything first; only checked tracks will be scheduled
   trackPlayers.forEach((state, index) => {
     stopTrackPlayer(index, false);
     state.pausedAt = offsetSeconds;
@@ -1964,12 +2046,12 @@ function playAllTrackPlayers() {
   const secondsPerBeat = 60 / tempoBpm;
   const sharedStartWall = performance.now() / 1000 - offsetSeconds;
   globalPlaybackState.startedAt = sharedStartWall;
-  // getAllTrackDuration() returns beats — convert to seconds for timers
-  globalPlaybackState.duration = getAllTrackDuration() * secondsPerBeat;
+  // Duration from selected tracks only (beats → seconds)
+  globalPlaybackState.duration = getAllTrackDuration(true) * secondsPerBeat;
   globalPlaybackState.pausedAt = offsetSeconds;
   globalPlaybackState.status = "playing";
 
-  conversionResults.forEach((_, index) => {
+  included.forEach(index => {
     if (!trackPlayers.has(index)) {
       const state = createTrackPlayer(index);
       if (state) trackPlayers.set(index, state);
@@ -2291,27 +2373,41 @@ async function downloadTrackAsWav(index) {
 }
 
 async function downloadAllTracksAsWav() {
-  if (!conversionResults.length) return;
+  const included = getIncludedTrackIndices();
+  if (!included.length) {
+    showError("No tracks selected. Check at least one track to export.");
+    return;
+  }
 
   const btn = elements.downloadAllMidiButton;
   if (btn) btn.disabled = true;
 
   try {
-    setExportStatus("Rendering all tracks to WAV…");
-    const specs = conversionResults.map((track, index) => ({
-      channel: index % 15,
-      program: resolveSoundFontProgram(track),
-      notes: getExportNotesForTrack(track)
-    }));
+    const label =
+      included.length === conversionResults.length
+        ? "all tracks"
+        : `${included.length} selected track${included.length === 1 ? "" : "s"}`;
+    setExportStatus(`Rendering ${label} to WAV…`);
+    const specs = included.map((index, i) => {
+      const track = conversionResults[index];
+      return {
+        channel: i % 15,
+        program: resolveSoundFontProgram(track),
+        notes: getExportNotesForTrack(track)
+      };
+    });
 
     const wav = await renderTracksToWavBuffer(specs, pct =>
-      setExportStatus(`Rendering all tracks… ${Math.round(pct * 100)}%`)
+      setExportStatus(`Rendering ${label}… ${Math.round(pct * 100)}%`)
     );
 
     const base =
       (midiFile && midiFile.name
         ? midiFile.name.replace(/\.(midi?|msc[zx])$/i, "")
-        : "gw2") + "_all_tracks";
+        : "gw2") +
+      (included.length === conversionResults.length
+        ? "_all_tracks"
+        : `_${included.length}tracks`);
     downloadArrayBuffer(wav, `${base}.wav`, "audio/wav");
     setExportStatus(`Downloaded ${base}.wav`);
   } catch (err) {
@@ -2325,6 +2421,7 @@ async function downloadAllTracksAsWav() {
 
 function getAllPlainText() {
   return conversionResults
+    .filter(track => track.included !== false)
     .map(track =>
       `${sanitizeExportText(track.name)}\n` +
       sanitizeExportText(track.plain)

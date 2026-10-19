@@ -596,6 +596,31 @@ select:focus {
   gap: 10px;
 }
 
+.track-include {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.track-include-check {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--channel-color, #5eead4);
+  cursor: pointer;
+}
+
+.channel.is-excluded {
+  opacity: 0.45;
+}
+
+.channel.is-excluded .notation {
+  filter: grayscale(0.35);
+}
+
 .channel-accent {
   flex: 0 0 5px;
   width: 5px;
