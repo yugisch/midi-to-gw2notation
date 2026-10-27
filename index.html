@@ -109,6 +109,9 @@
         </h3>
 
         <div class="legend">
+          <span class="symbol">|</span>
+          <span>Bar line (from time signature)</span>
+
           <span class="symbol">━</span>
           <span>Pause for one beat</span>
 
@@ -122,16 +125,16 @@
           <span>Low octave</span>
 
           <span class="symbol chord">/</span>
-          <span>Chord — notes played together</span>
-
-          <span class="symbol">.</span>
-          <span>Quarter dot (+25%)</span>
+          <span>Chord — play notes together</span>
 
           <span class="symbol">·</span>
-          <span>Dotted note (+50%)</span>
+          <span>Dotted — +½ of the note itself</span>
+
+          <span class="symbol">.</span>
+          <span>Quarter dot — +¼ of the note itself</span>
 
           <span class="symbol">·.</span>
-          <span>Double dotted (+75%)</span>
+          <span>Double dotted — +½ and +¼</span>
 
           <span class="symbol outside">{ }</span>
           <span>Below playable octave</span>
@@ -141,9 +144,6 @@
 
           <span class="symbol accidental">#</span>
           <span>Accidental / sharp</span>
-
-          <span class="symbol">|</span>
-          <span>Bar line (from time signature)</span>
         </div>
 
         <p class="hint">
@@ -170,15 +170,32 @@
       </div>
 
       <div class="global-player" aria-label="All tracks playback controls">
-        <div class="global-player-copy">
-          <strong>All tracks</strong>
-          <span id="globalPlaybackStatus">Ready</span>
+        <div class="global-player-top">
+          <div class="global-player-copy">
+            <strong>All tracks</strong>
+            <span id="globalPlaybackStatus">Ready</span>
+          </div>
+          <div class="global-player-buttons">
+            <button id="playAllButton" type="button" disabled>▶ Play All</button>
+            <button id="pauseAllButton" type="button" disabled>⏸ Pause All</button>
+            <button id="stopAllButton" type="button" disabled>■ Stop All</button>
+            <button id="downloadAllMidiButton" type="button" disabled title="Download all tracks as WAV (rendered with your SoundFont)">⬇ WAV</button>
+          </div>
         </div>
-        <div class="global-player-buttons">
-          <button id="playAllButton" type="button" disabled>▶ Play All</button>
-          <button id="pauseAllButton" type="button" disabled>⏸ Pause All</button>
-          <button id="stopAllButton" type="button" disabled>■ Stop All</button>
-          <button id="downloadAllMidiButton" type="button" disabled title="Download all tracks as WAV (rendered with your SoundFont)">⬇ WAV</button>
+        <div class="seek-bar global-seek" aria-label="Seek all tracks">
+          <span id="globalSeekTime" class="seek-time">0:00</span>
+          <input
+            id="globalSeek"
+            type="range"
+            class="seek-input"
+            min="0"
+            max="0"
+            step="0.05"
+            value="0"
+            disabled
+            title="Scrub to a position, then play from there"
+          >
+          <span id="globalSeekDuration" class="seek-time">0:00</span>
         </div>
       </div>
 

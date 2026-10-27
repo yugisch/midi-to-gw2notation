@@ -93,6 +93,9 @@ const elements = {
   stopAllButton: document.getElementById("stopAllButton"),
   downloadAllMidiButton: document.getElementById("downloadAllMidiButton"),
   globalPlaybackStatus: document.getElementById("globalPlaybackStatus"),
+  globalSeek: document.getElementById("globalSeek"),
+  globalSeekTime: document.getElementById("globalSeekTime"),
+  globalSeekDuration: document.getElementById("globalSeekDuration"),
 
   copyButton: document.getElementById("copyButton"),
   downloadButton: document.getElementById("downloadButton")
@@ -818,6 +821,36 @@ function convertTrack(
   const beats = [];
   const effectiveGrids = [];
 
+  /*
+   * Duration marks (Powerina meanings, hybrid detection):
+   * Use gap until *next attack* (not MIDI sustain), relative to the written
+   * slot unit. Wider bands so slightly messy MIDI still gets marks; multi-beat
+   * gaps stay as note + rests (no mark).
+   *   .   ≈ ×1.25  (quarter dot)
+   *   ·   ≈ ×1.5   (dotted)
+   *   ·.  ≈ ×1.75  (double dotted)
+   */
+  const onsetTicks = [...new Set(events.map(e => e.startTick))].sort((a, b) => a - b);
+
+  const interOnsetBeats = startTick => {
+    const next = onsetTicks.find(t => t > startTick + 1);
+    if (next != null) return (next - startTick) / ppq;
+    // Last note in the track: use remaining song length (at least one grid unit)
+    return Math.max(1 / ppq, (songEnd - startTick) / ppq);
+  };
+
+  /** Duration mark for a note whose written unit is `baseBeats`. */
+  const powerinaDurationMark = (interOnset, baseBeats) => {
+    const base = Math.max(1e-6, baseBeats);
+    const ratio = interOnset / base;
+    // ≥ ~2 written units → rest slots carry the length (no duration mark)
+    if (ratio >= 1.95) return "";
+    if (ratio >= 1.65) return "·.";
+    if (ratio >= 1.40) return "·";
+    if (ratio >= 1.20) return ".";
+    return "";
+  };
+
   for (let beatIndex = 0; beatIndex < beatCount; beatIndex++) {
     const beatStart = beatIndex * ppq;
     const beatEnd = beatStart + ppq;
@@ -839,6 +872,7 @@ function convertTrack(
       );
       cells[slot].push({
         midi: event.midi,
+        startTick: event.startTick,
         durationBeats: event.durationTicks / ppq
       });
     }
@@ -848,7 +882,8 @@ function convertTrack(
       const slotDuration = effectiveGrid;
 
       if (!cell.length) {
-        const pause = effectiveGrid === 1 ? "━" : "-";
+        // Powerina: ━ = one full beat rest, - = half-beat rest
+        const pause = effectiveGrid >= 1 - 1e-9 ? "━" : "-";
         return `<span class="playback-beat playback-empty" data-start-beat="${slotStartBeat.toFixed(6)}" data-duration-beats="${slotDuration.toFixed(6)}">${pause}</span>`;
       }
 
@@ -882,12 +917,13 @@ function convertTrack(
         token = `<span class="chord">${token}</span>`;
       }
 
-      const durationBeats = Math.max(...cell.map(note => note.durationBeats));
-      if (durationBeats >= 1.75) token += "·.";
-      else if (durationBeats >= 1.5) token += "·";
-      else if (durationBeats >= 1.25) token += ".";
+      // Inter-onset interval from earliest attack in this cell (Powerina timing)
+      const cellStartTick = Math.min(...cell.map(n => n.startTick));
+      const ioiBeats = interOnsetBeats(cellStartTick);
+      token += powerinaDurationMark(ioiBeats, slotDuration);
 
-      return `<span class="playback-beat playback-note" data-start-beat="${slotStartBeat.toFixed(6)}" data-duration-beats="${Math.max(slotDuration, durationBeats).toFixed(6)}">${token}</span>`;
+      const midiSustain = Math.max(...cell.map(note => note.durationBeats));
+      return `<span class="playback-beat playback-note" data-start-beat="${slotStartBeat.toFixed(6)}" data-duration-beats="${Math.max(slotDuration, ioiBeats, midiSustain).toFixed(6)}">${token}</span>`;
     });
 
     beats.push(`<span class="playback-beat-group" data-beat-index="${beatIndex}">${tokens.join("")}</span>`);
@@ -1125,40 +1161,56 @@ function renderChannels() {
               class="channel-meta"
               style="--channel-color: ${track.color}"
             >
-              <div class="channel-heading">
-                <label class="track-include" title="Include in Play All, WAV all, and text export">
-                  <input
-                    type="checkbox"
-                    class="track-include-check"
-                    data-track-index="${index}"
-                    ${track.included !== false ? "checked" : ""}
-                    aria-label="Include ${escapeHtml(track.name)} in Play All and export"
-                  >
-                </label>
-                <div class="channel-accent"></div>
-                <div>
-                  <div class="channel-name">
-                    ${escapeHtml(track.name)}
-                  </div>
+              <div class="channel-meta-row">
+                <div class="channel-heading">
+                  <label class="track-include" title="Include in Play All, WAV all, and text export">
+                    <input
+                      type="checkbox"
+                      class="track-include-check"
+                      data-track-index="${index}"
+                      ${track.included !== false ? "checked" : ""}
+                      aria-label="Include ${escapeHtml(track.name)} in Play All and export"
+                    >
+                  </label>
+                  <div class="channel-accent"></div>
+                  <div>
+                    <div class="channel-name">
+                      ${escapeHtml(track.name)}
+                    </div>
 
-                  <div class="channel-info">
-                    ${track.noteCount} notes · ${escapeHtml(track.playbackInstrumentLabel)}
+                    <div class="channel-info">
+                      ${track.noteCount} notes · ${escapeHtml(track.playbackInstrumentLabel)}
+                    </div>
+                  </div>
+                </div>
+
+                <div class="track-controls">
+                  <label class="instrument-picker">Sound
+                    <select class="track-instrument-select" data-track-index="${index}" aria-label="Choose sound for ${escapeHtml(track.name)}">
+                      ${getSoundFontPresetOptions(track.selectedSoundFontProgram ?? getDefaultSoundFontProgram(track))}
+                    </select>
+                  </label>
+                  <div class="track-player" data-player-index="${index}">
+                    <button type="button" class="track-play" title="Play this track">▶ Play</button>
+                    <button type="button" class="track-pause" title="Pause this track">⏸ Pause</button>
+                    <button type="button" class="track-stop" title="Stop this track">■ Stop</button>
+                    <button type="button" class="track-download-midi" title="Download this track as WAV (rendered with your SoundFont)">⬇ WAV</button>
                   </div>
                 </div>
               </div>
-
-              <div class="track-controls">
-                <label class="instrument-picker">Sound
-                  <select class="track-instrument-select" data-track-index="${index}" aria-label="Choose sound for ${escapeHtml(track.name)}">
-                    ${getSoundFontPresetOptions(track.selectedSoundFontProgram ?? getDefaultSoundFontProgram(track))}
-                  </select>
-                </label>
-                <div class="track-player" data-player-index="${index}">
-                <button type="button" class="track-play" title="Play this track">▶ Play</button>
-                <button type="button" class="track-pause" title="Pause this track">⏸ Pause</button>
-                <button type="button" class="track-stop" title="Stop this track">■ Stop</button>
-                <button type="button" class="track-download-midi" title="Download this track as WAV (rendered with your SoundFont)">⬇ WAV</button>
-                </div>
+              <div class="seek-bar track-seek" data-seek-index="${index}" aria-label="Seek ${escapeHtml(track.name)}">
+                <span class="seek-time track-seek-time">0:00</span>
+                <input
+                  type="range"
+                  class="seek-input track-seek-input"
+                  data-seek-index="${index}"
+                  min="0"
+                  max="0"
+                  step="0.05"
+                  value="0"
+                  title="Scrub to play from this point"
+                >
+                <span class="seek-time track-seek-duration">0:00</span>
               </div>
             </div>
 
@@ -1266,6 +1318,13 @@ function startPlaybackHighlightLoop() {
     if (globalPlaybackState.status === "playing") {
       const elapsed = Math.max(0, performance.now() / 1000 - globalPlaybackState.startedAt);
       updatePlaybackHighlights(elapsed);
+      if (!globalSeekDragging) updateGlobalSeekUI(elapsed);
+      // Keep per-track bars in sync when playing all
+      if (!trackSeekDragging) {
+        trackPlayers.forEach((state, index) => {
+          if (state.status === "playing") updateTrackSeekUI(index, elapsed);
+        });
+      }
       playbackHighlightFrame = requestAnimationFrame(tick);
       return;
     }
@@ -1276,6 +1335,7 @@ function startPlaybackHighlightLoop() {
       playingStates.forEach(state => {
         const elapsed = Math.max(0, now - state.startedAt);
         updatePlaybackHighlights(elapsed, state.index);
+        if (!trackSeekDragging) updateTrackSeekUI(state.index, elapsed);
       });
       playbackHighlightFrame = requestAnimationFrame(tick);
     } else {
@@ -1283,6 +1343,179 @@ function startPlaybackHighlightLoop() {
     }
   };
   playbackHighlightFrame = requestAnimationFrame(tick);
+}
+
+/** Format seconds as m:ss (or h:mm:ss if long). */
+function formatPlaybackTime(seconds) {
+  const s = Math.max(0, Math.floor(Number(seconds) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  }
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+function getTempoSecondsPerBeat() {
+  return 60 / (Number(elements.tempo?.value) || 120);
+}
+
+function getTrackDurationSeconds(index) {
+  const track = conversionResults[index];
+  if (!track) return 0;
+  const beats = (track.playbackNotes || []).reduce(
+    (max, note) => Math.max(max, note.startBeat + note.durationBeats),
+    0
+  );
+  return beats * getTempoSecondsPerBeat();
+}
+
+let globalSeekDragging = false;
+let trackSeekDragging = false;
+
+function updateGlobalSeekUI(positionSeconds) {
+  const input = elements.globalSeek;
+  if (!input) return;
+  const duration = Math.max(
+    globalPlaybackState.duration || 0,
+    getAllTrackDuration(true) * getTempoSecondsPerBeat()
+  );
+  input.max = String(Math.max(duration, 0.01));
+  input.disabled = duration <= 0;
+  if (!globalSeekDragging) {
+    input.value = String(Math.min(duration, Math.max(0, positionSeconds)));
+  }
+  if (elements.globalSeekTime) {
+    elements.globalSeekTime.textContent = formatPlaybackTime(positionSeconds);
+  }
+  if (elements.globalSeekDuration) {
+    elements.globalSeekDuration.textContent = formatPlaybackTime(duration);
+  }
+}
+
+function updateTrackSeekUI(index, positionSeconds) {
+  const input = elements.channels?.querySelector(
+    `.track-seek-input[data-seek-index="${index}"]`
+  );
+  if (!input) return;
+  const duration = getTrackDurationSeconds(index);
+  input.max = String(Math.max(duration, 0.01));
+  if (!trackSeekDragging) {
+    input.value = String(Math.min(duration, Math.max(0, positionSeconds)));
+  }
+  const row = input.closest(".track-seek");
+  const timeEl = row?.querySelector(".track-seek-time");
+  const durEl = row?.querySelector(".track-seek-duration");
+  if (timeEl) timeEl.textContent = formatPlaybackTime(positionSeconds);
+  if (durEl) durEl.textContent = formatPlaybackTime(duration);
+}
+
+/**
+ * Jump all tracks to `seconds` (and keep playing if already playing).
+ */
+function seekGlobal(seconds) {
+  const duration = Math.max(
+    globalPlaybackState.duration || 0,
+    getAllTrackDuration(true) * getTempoSecondsPerBeat()
+  );
+  const t = Math.max(0, Math.min(duration || 0, Number(seconds) || 0));
+  const wasPlaying = globalPlaybackState.status === "playing";
+
+  clearGlobalPlaybackTimer();
+  trackPlayers.forEach((state, index) => {
+    stopTrackPlayer(index, false);
+    state.pausedAt = t;
+  });
+
+  globalPlaybackState.pausedAt = t;
+  globalPlaybackState.duration = duration;
+  updateGlobalSeekUI(t);
+  updatePlaybackHighlights(t);
+
+  if (wasPlaying) {
+    // Resume from the scrubbed point
+    globalPlaybackState.status = "paused";
+    playAllTrackPlayers();
+  } else if (globalPlaybackState.status !== "paused") {
+    globalPlaybackState.status = "stopped";
+    setGlobalPlaybackUI("stopped");
+  }
+}
+
+/**
+ * Jump a single track to `seconds`.
+ */
+function seekTrack(index, seconds) {
+  const duration = getTrackDurationSeconds(index);
+  const t = Math.max(0, Math.min(duration, Number(seconds) || 0));
+  let state = trackPlayers.get(index);
+  if (!state) {
+    state = createTrackPlayer(index);
+    if (state) trackPlayers.set(index, state);
+  }
+  if (!state) return;
+
+  const wasPlaying = state.status === "playing";
+  stopTrackPlayer(index, false);
+  state.pausedAt = t;
+  state.status = wasPlaying || state.status === "paused" ? "paused" : "stopped";
+  updateTrackSeekUI(index, t);
+  updatePlaybackHighlights(t, index);
+  updateTrackPlayerUI(index);
+
+  if (wasPlaying) {
+    scheduleTrackFrom(index, t);
+  }
+}
+
+function setupGlobalSeekBar() {
+  const input = elements.globalSeek;
+  if (!input || input.dataset.bound === "1") return;
+  input.dataset.bound = "1";
+
+  input.addEventListener("pointerdown", () => {
+    globalSeekDragging = true;
+  });
+  input.addEventListener("pointerup", () => {
+    globalSeekDragging = false;
+    seekGlobal(Number(input.value));
+  });
+  input.addEventListener("change", () => {
+    globalSeekDragging = false;
+    seekGlobal(Number(input.value));
+  });
+  // Live time label while dragging
+  input.addEventListener("input", () => {
+    if (elements.globalSeekTime) {
+      elements.globalSeekTime.textContent = formatPlaybackTime(Number(input.value));
+    }
+  });
+}
+
+function setupTrackSeekBars() {
+  elements.channels.querySelectorAll(".track-seek-input").forEach(input => {
+    if (input.dataset.bound === "1") return;
+    input.dataset.bound = "1";
+    const index = Number(input.dataset.seekIndex);
+
+    input.addEventListener("pointerdown", () => {
+      trackSeekDragging = true;
+    });
+    input.addEventListener("pointerup", () => {
+      trackSeekDragging = false;
+      seekTrack(index, Number(input.value));
+    });
+    input.addEventListener("change", () => {
+      trackSeekDragging = false;
+      seekTrack(index, Number(input.value));
+    });
+    input.addEventListener("input", () => {
+      const row = input.closest(".track-seek");
+      const timeEl = row?.querySelector(".track-seek-time");
+      if (timeEl) timeEl.textContent = formatPlaybackTime(Number(input.value));
+    });
+  });
 }
 
 /* ============================================================
@@ -1914,7 +2147,11 @@ function playTrackPlayer(index) {
   const ctx = getPlaybackAudioContext();
   if (ctx.state === "suspended") ctx.resume();
   if (state.status === "playing") return;
-  scheduleTrackFrom(index, state.status === "paused" ? state.pausedAt : 0);
+  // Resume from pause *or* from a scrubbed position (pausedAt > 0 while stopped)
+  const offset =
+    state.status === "paused" || state.pausedAt > 0 ? state.pausedAt : 0;
+  scheduleTrackFrom(index, offset);
+  updateTrackSeekUI(index, offset);
 }
 
 function pauseTrackPlayer(index) {
@@ -1934,14 +2171,20 @@ function pauseTrackPlayer(index) {
   state.voices.clear();
   state.status = "paused";
   updateTrackPlayerUI(index);
+  updateTrackSeekUI(index, state.pausedAt);
 }
 
 function updateTrackPlayerUI(index) {
   const root = elements.channels.querySelector(`[data-player-index="${index}"]`);
   if (!root) return;
   const state = trackPlayers.get(index);
-  root.classList.toggle("is-playing", state?.status === "playing");
-  root.querySelector(".track-play").textContent = state?.status === "paused" ? "▶ Resume" : "▶ Play";
+  const playing = state?.status === "playing";
+  root.classList.toggle("is-playing", playing);
+  elements.channels
+    .querySelector(`.channel[data-track-index="${index}"]`)
+    ?.classList.toggle("is-playing", playing);
+  root.querySelector(".track-play").textContent =
+    state?.status === "paused" ? "▶ Resume" : "▶ Play";
 }
 
 function getAllTrackDuration(onlyIncluded = true) {
@@ -2030,9 +2273,11 @@ function playAllTrackPlayers() {
   const ctx = getPlaybackAudioContext();
   if (ctx.state === "suspended") ctx.resume();
 
-  const offsetSeconds = globalPlaybackState.status === "paused"
-    ? globalPlaybackState.pausedAt
-    : 0;
+  // Resume from pause *or* from a scrubbed position while stopped
+  const offsetSeconds =
+    globalPlaybackState.status === "paused" || globalPlaybackState.pausedAt > 0
+      ? globalPlaybackState.pausedAt
+      : 0;
 
   // Stop everything first; only checked tracks will be scheduled
   trackPlayers.forEach((state, index) => {
@@ -2065,10 +2310,12 @@ function playAllTrackPlayers() {
       globalPlaybackState.status = "stopped";
       globalPlaybackState.pausedAt = 0;
       stopAllTrackPlayers(true);
+      updateGlobalSeekUI(0);
     }
   }, remaining * 1000 + 150);
 
   setGlobalPlaybackUI("playing");
+  updateGlobalSeekUI(offsetSeconds);
   startPlaybackHighlightLoop();
 }
 
@@ -2085,6 +2332,7 @@ function pauseAllTrackPlayers() {
   });
 
   setGlobalPlaybackUI("paused");
+  updateGlobalSeekUI(globalPlaybackState.pausedAt);
 }
 
 elements.playAllButton?.addEventListener("click", playAllTrackPlayers);
@@ -2092,7 +2340,9 @@ elements.pauseAllButton?.addEventListener("click", pauseAllTrackPlayers);
 elements.stopAllButton?.addEventListener("click", () => {
   clearGlobalPlaybackTimer();
   stopAllTrackPlayers(true);
+  updateGlobalSeekUI(0);
 });
+setupGlobalSeekBar();
 
 function setupTrackPlayers() {
   clearGlobalPlaybackTimer();
@@ -2107,9 +2357,18 @@ function setupTrackPlayers() {
     const index = Number(player.dataset.playerIndex);
     player.querySelector(".track-play").addEventListener("click", () => playTrackPlayer(index));
     player.querySelector(".track-pause").addEventListener("click", () => pauseTrackPlayer(index));
-    player.querySelector(".track-stop").addEventListener("click", () => stopTrackPlayer(index, true));
+    player.querySelector(".track-stop").addEventListener("click", () => {
+      stopTrackPlayer(index, true);
+      updateTrackSeekUI(index, 0);
+    });
     player.querySelector(".track-download-midi")?.addEventListener("click", () => downloadTrackAsWav(index));
   });
+
+  setupTrackSeekBars();
+  const totalDuration = getAllTrackDuration(true) * getTempoSecondsPerBeat();
+  globalPlaybackState.duration = totalDuration;
+  updateGlobalSeekUI(0);
+  conversionResults.forEach((_, index) => updateTrackSeekUI(index, 0));
 }
 
 elements.downloadAllMidiButton?.addEventListener("click", downloadAllTracksAsWav);

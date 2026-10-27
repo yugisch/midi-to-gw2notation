@@ -488,13 +488,19 @@ select:focus {
   margin: 12px 14px 2px;
   padding: 10px 12px;
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid #25385f;
+  border-radius: 10px;
+  background: #0c1730;
+}
+
+.global-player-top {
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  border: 1px solid #25385f;
-  border-radius: 10px;
-  background: #0c1730;
 }
 
 .global-player-copy {
@@ -503,6 +509,63 @@ select:focus {
   gap: 8px;
   min-width: 0;
 }
+
+.seek-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.seek-time {
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  min-width: 2.6em;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.seek-input {
+  flex: 1;
+  min-width: 0;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #1a2744;
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+}
+
+.seek-input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.seek-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--cyan, #5ec8ff);
+  border: 2px solid #0c1730;
+  cursor: pointer;
+  box-shadow: 0 0 0 1px #2a3f66;
+}
+
+.seek-input::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--cyan, #5ec8ff);
+  border: 2px solid #0c1730;
+  cursor: pointer;
+}
+
+/* track-seek spacing handled under TRACK PLAYERS */
 
 .global-player-copy strong {
   color: #dbe6ff;
@@ -580,13 +643,20 @@ select:focus {
 }
 
 .channel-meta {
-  min-height: 54px;
-  padding: 8px 10px;
+  padding: 8px 10px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+
+.channel-meta-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  position: relative;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .channel-heading {
@@ -903,26 +973,19 @@ select:focus {
    TRACK PLAYERS
    ============================================================ */
 
-.channel-meta {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
 .channel-accent {
-  flex: 0 0 5px;
-  width: 5px;
-  min-height: 62px;
-  margin-top: 2px;
+  flex: 0 0 4px;
+  width: 4px;
+  align-self: stretch;
+  min-height: 28px;
   border-radius: 999px;
   background: var(--channel-color, #5eead4);
-  box-shadow: 0 0 12px var(--channel-color, #5eead4);
+  box-shadow: 0 0 10px var(--channel-color, #5eead4);
 }
 
 .channel-heading {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
 }
 
 .track-player {
@@ -930,6 +993,39 @@ select:focus {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
+}
+
+.track-seek {
+  margin: 0;
+  padding: 0 2px 2px;
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+
+.channel:hover .track-seek,
+.channel.is-playing .track-seek,
+.channel-meta:focus-within .track-seek {
+  opacity: 1;
+}
+
+.track-seek .seek-input {
+  height: 4px;
+}
+
+.track-seek .seek-input::-webkit-slider-thumb {
+  width: 11px;
+  height: 11px;
+}
+
+.track-seek .seek-input::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+}
+
+.track-seek .seek-time {
+  font-size: 9px;
+  min-width: 2.4em;
+  color: #6b7a9a;
 }
 
 .track-player button {
@@ -964,14 +1060,19 @@ select:focus {
 }
 
 @media (max-width: 640px) {
-  .channel-meta {
-    align-items: flex-start;
+  .channel-meta-row {
     flex-direction: column;
-    gap: 9px;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .track-controls {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .track-player {
-    width: 100%;
+    width: auto;
     justify-content: flex-start;
   }
 }
