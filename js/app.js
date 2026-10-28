@@ -19,7 +19,48 @@
    ============================================================ */
 
 let midiFile = null;
+/**
+ * Octave writing shift for notation markers.
+ *  0 = default mid reference
+ * +1 = raise writing  ([3] → 3 → (3))
+ * -1 = lower writing  ((3) → 3 → [3])
+ * Clamped to -2 … +2.
+ */
+let octaveShift = 0;
+/** @deprecated mapped from octaveShift for older call sites */
 let selectedOctave = "mid";
+
+/** Last successful convert context so octave changes can re-render without re-reading the file. */
+let lastConvertContext = null;
+
+/** BPM from the last loaded score (first tempo event). Used when the tempo field is empty. */
+let midiSourceTempoBpm = 120;
+
+/**
+ * Effective playback tempo: field value if set, otherwise the MIDI/score tempo.
+ */
+function getPlaybackTempoBpm() {
+  const raw = elements.tempo?.value;
+  if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 20 && n <= 300) return n;
+  }
+  return midiSourceTempoBpm || 120;
+}
+
+function extractMidiTempoBpm(midi) {
+  const tempos = midi?.header?.tempos;
+  if (Array.isArray(tempos) && tempos.length) {
+    const first = tempos[0];
+    const bpm = Number(first.bpm ?? first.BPM);
+    if (Number.isFinite(bpm) && bpm > 0) return Math.round(bpm * 10) / 10;
+  }
+  // Some files only expose microseconds per quarter via tempo events
+  if (typeof midi?.header?.tempos?.[0]?.ticks === "number" && tempos?.[0]?.bpm) {
+    return Number(tempos[0].bpm);
+  }
+  return 120;
+}
 let conversionResults = [];
 
 
@@ -77,7 +118,6 @@ const elements = {
   clearFile: document.getElementById("clearFile"),
 
   tempo: document.getElementById("tempo"),
-  outputFormat: document.getElementById("outputFormat"),
   beatGrid: document.getElementById("beatGrid"),
   preserveFastNotes: document.getElementById("preserveFastNotes"),
   transposeMode: document.getElementById("transposeMode"),
@@ -179,6 +219,10 @@ elements.clearFile.addEventListener("click", () => {
   setGlobalPlaybackUI("stopped");
 
   midiFile = null;
+  lastConvertContext = null;
+  conversionResults = [];
+  midiSourceTempoBpm = 120;
+  if (elements.tempo) elements.tempo.placeholder = "Use MIDI tempo";
 
   elements.midiFile.value = "";
 
@@ -203,27 +247,104 @@ elements.clearFile.addEventListener("click", () => {
    ============================================================ */
 
 
-/*
- * Octave selection.
+function syncOctaveShiftFromValue() {
+  // Keep selectedOctave in sync for any leftover references
+  selectedOctave =
+    octaveShift >= 1 ? "low" : octaveShift <= -1 ? "high" : "mid";
+  const label = document.getElementById("octaveShiftValue");
+  if (label) {
+    label.textContent =
+      octaveShift > 0 ? `+${octaveShift}` : String(octaveShift);
+  }
+  const hasOutput = Array.isArray(conversionResults) && conversionResults.length > 0;
+  const down = document.getElementById("octaveShiftDown");
+  const up = document.getElementById("octaveShiftUp");
+  if (down) down.disabled = !hasOutput || octaveShift <= -2;
+  if (up) up.disabled = !hasOutput || octaveShift >= 2;
+  document
+    .querySelector(".octave-shift-control")
+    ?.classList.toggle("is-disabled", !hasOutput);
+}
+
+/**
+ * Re-run notation mapping with the current octaveShift using the last
+ * converted tracks (no file re-read, no Convert click).
  */
-document.querySelectorAll(".octave-button").forEach(button => {
+function reapplyOctaveMapping() {
+  if (!lastConvertContext || !conversionResults.length) return;
 
-  button.addEventListener("click", () => {
+  const prev = conversionResults.map(t => ({
+    included: t.included,
+    selectedSoundFontProgram: t.selectedSoundFontProgram
+  }));
 
-    selectedOctave =
-      button.dataset.octave;
+  const {
+    tracks,
+    timeSignatures,
+    transpose,
+    beatGrid,
+    preserveFastNotes
+  } = lastConvertContext;
 
-    document
-      .querySelectorAll(".octave-button")
-      .forEach(other => {
-        other.classList.toggle(
-          "active",
-          other === button
-        );
-      });
+  conversionResults = tracks
+    .map((track, index) =>
+      convertTrack(
+        track,
+        index,
+        beatGrid,
+        transpose,
+        preserveFastNotes,
+        timeSignatures
+      )
+    )
+    .filter(Boolean);
 
+  conversionResults.forEach((track, index) => {
+    if (prev[index]) {
+      track.included = prev[index].included;
+      if (prev[index].selectedSoundFontProgram != null) {
+        track.selectedSoundFontProgram = prev[index].selectedSoundFontProgram;
+      }
+    }
   });
 
+  renderChannels();
+}
+
+document.getElementById("octaveShiftUp")?.addEventListener("click", () => {
+  if (octaveShift >= 2) return;
+  octaveShift += 1;
+  syncOctaveShiftFromValue();
+  reapplyOctaveMapping();
+});
+
+document.getElementById("octaveShiftDown")?.addEventListener("click", () => {
+  if (octaveShift <= -2) return;
+  octaveShift -= 1;
+  syncOctaveShiftFromValue();
+  reapplyOctaveMapping();
+});
+
+syncOctaveShiftFromValue();
+
+// Live tempo field: update seek bar durations without re-convert
+elements.tempo?.addEventListener("input", () => {
+  if (!conversionResults.length) return;
+  const duration = getAllTrackDuration(true) * getTempoSecondsPerBeat();
+  globalPlaybackState.duration = duration;
+  const pos =
+    globalPlaybackState.status === "playing"
+      ? Math.max(0, performance.now() / 1000 - globalPlaybackState.startedAt)
+      : globalPlaybackState.pausedAt || 0;
+  updateGlobalSeekUI(pos);
+  conversionResults.forEach((_, index) => {
+    const state = trackPlayers.get(index);
+    const t =
+      state?.status === "playing"
+        ? Math.max(0, performance.now() / 1000 - state.startedAt)
+        : state?.pausedAt || 0;
+    updateTrackSeekUI(index, t);
+  });
 });
 
 
@@ -329,6 +450,11 @@ async function convertMidi() {
     const midi =
       new Midi(arrayBuffer);
 
+    midiSourceTempoBpm = extractMidiTempoBpm(midi);
+    // Refresh placeholder hint so users see the score tempo
+    if (elements.tempo) {
+      elements.tempo.placeholder = `MIDI · ${midiSourceTempoBpm} BPM`;
+    }
 
     const tracks =
       midi.tracks.map(track => ({
@@ -347,15 +473,27 @@ async function convertMidi() {
         ? findBestTranspose(tracks)
         : 0;
 
+    const beatGrid = elements.beatGrid.value;
+    const preserveFastNotes = elements.preserveFastNotes.checked;
+
+    // Keep parsed tracks so octave +/− can refresh notation without Convert
+    lastConvertContext = {
+      tracks,
+      timeSignatures,
+      transpose,
+      beatGrid,
+      preserveFastNotes
+    };
+
     conversionResults =
       tracks
         .map((track, index) =>
           convertTrack(
             track,
             index,
-            elements.beatGrid.value,
+            beatGrid,
             transpose,
-            elements.preserveFastNotes.checked,
+            preserveFastNotes,
             timeSignatures
           )
         )
@@ -363,6 +501,7 @@ async function convertMidi() {
 
 
     if (conversionResults.length === 0) {
+      lastConvertContext = null;
       throw new Error(
         "No note events were found in this MIDI file."
       );
@@ -480,14 +619,9 @@ function getPitchText(midiNote) {
   const midiOctave =
     Math.floor(midiNote / 12) - 5;
 
-
-  const referenceOctave =
-    selectedOctave === "low"
-      ? 0
-      : selectedOctave === "high"
-        ? 2
-        : 1;
-
+  // Default mid reference is 1. Raising octaveShift lowers the reference so
+  // the same pitch is written higher: [3] → 3 → (3).
+  const referenceOctave = 1 - octaveShift;
 
   const octaveDifference =
     midiOctave - referenceOctave;
@@ -740,7 +874,7 @@ function convertTrack(
   const ppq = Number(track.ppq) || 480;
   const notes = track.notes;
   const requestedGrid = beatGrid === "auto" ? 1 : Number(beatGrid);
-  const tempoBpm = Number(elements.tempo?.value) || 120;
+  const tempoBpm = getPlaybackTempoBpm();
   const secondsPerBeat = 60 / tempoBpm;
   const tsList = timeSignatures && timeSignatures.length
     ? timeSignatures
@@ -1287,7 +1421,7 @@ function clearPlaybackHighlights() {
 }
 
 function updatePlaybackHighlights(positionSeconds, trackIndex = null) {
-  const tempoBpm = Number(elements.tempo?.value) || 120;
+  const tempoBpm = getPlaybackTempoBpm();
   const positionBeat = positionSeconds / (60 / tempoBpm);
   const scope = trackIndex === null
     ? elements.channels
@@ -1358,7 +1492,7 @@ function formatPlaybackTime(seconds) {
 }
 
 function getTempoSecondsPerBeat() {
-  return 60 / (Number(elements.tempo?.value) || 120);
+  return 60 / (getPlaybackTempoBpm());
 }
 
 function getTrackDurationSeconds(index) {
@@ -2083,7 +2217,7 @@ async function scheduleTrackFrom(index, offsetSeconds, sharedStartWall = null) {
     return;
   }
 
-  const tempoBpm = Number(elements.tempo?.value) || 120;
+  const tempoBpm = getPlaybackTempoBpm();
   const secondsPerBeat = 60 / tempoBpm;
   const channel = soundFontChannelForTrack(index);
   // Program select once per schedule — not on every note (that was cutting notes).
@@ -2157,7 +2291,7 @@ function playTrackPlayer(index) {
 function pauseTrackPlayer(index) {
   const state = trackPlayers.get(index);
   if (!state || state.status !== "playing") return;
-  const tempoBpm = Number(elements.tempo?.value) || 120;
+  const tempoBpm = getPlaybackTempoBpm();
   const secondsPerBeat = 60 / tempoBpm;
   const durationSeconds = (state.durationBeats ?? state.duration ?? 0) * secondsPerBeat;
   const elapsed = Math.max(0, performance.now() / 1000 - state.startedAt);
@@ -2212,6 +2346,8 @@ function setGlobalPlaybackEnabled(enabled) {
   if (elements.downloadAllMidiButton) {
     elements.downloadAllMidiButton.disabled = !enabled;
   }
+  // Octave − / + only useful once notation exists
+  syncOctaveShiftFromValue();
 }
 
 function setGlobalPlaybackUI(status) {
@@ -2287,7 +2423,7 @@ function playAllTrackPlayers() {
 
   clearGlobalPlaybackTimer();
 
-  const tempoBpm = Number(elements.tempo?.value) || 120;
+  const tempoBpm = getPlaybackTempoBpm();
   const secondsPerBeat = 60 / tempoBpm;
   const sharedStartWall = performance.now() / 1000 - offsetSeconds;
   globalPlaybackState.startedAt = sharedStartWall;
@@ -2468,7 +2604,7 @@ async function renderTracksToWavBuffer(trackSpecs, onProgress) {
   const synth = soundFontEngine.synth;
   const ctx = getPlaybackAudioContext();
   const sampleRate = ctx.sampleRate || 44100;
-  const tempoBpm = Number(elements.tempo?.value) || 120;
+  const tempoBpm = getPlaybackTempoBpm();
   const secondsPerBeat = 60 / tempoBpm;
   const gainMul = soundFontEngine.outputGain || 1;
 

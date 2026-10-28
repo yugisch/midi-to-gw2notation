@@ -57,42 +57,33 @@
           <span>⚙</span> Conversion options
         </h3>
 
-        <label for="tempo">Tempo override <small>(optional)</small></label>
-        <input id="tempo" type="number" min="20" max="300" placeholder="Use MIDI tempo">
-
-        <label>Playable octave reference</label>
-        <div class="octave-buttons">
-          <button class="octave-button" data-octave="low">Low</button>
-          <button class="octave-button active" data-octave="mid">Mid</button>
-          <button class="octave-button" data-octave="high">High</button>
-        </div>
-
-        <label for="outputFormat">Notation output</label>
-        <select id="outputFormat">
-          <option value="gw2">GW2 Numeric Notation</option>
-          <option value="degrees">Scale degrees</option>
-        </select>
-
-        <label for="beatGrid">Beat grid</label>
-        <select id="beatGrid">
-          <option value="auto" selected>Auto — preserve the MIDI rhythm</option>
-          <option value="1">Whole beat</option>
-          <option value="0.5">Half-beat</option>
-          <option value="0.25">Quarter-beat</option>
-          <option value="0.125">Eighth-beat</option>
-        </select>
-        <label class="check-row" for="preserveFastNotes">
-          <input id="preserveFastNotes" type="checkbox" checked>
-          <span>Preserve fast notes</span>
-        </label>
-        <small class="field-help beat-grid-help">When enabled, only beats that need finer timing are subdivided. Turn it off to strictly quantize to the selected grid.</small>
+        <label for="tempo">Playback tempo <small>(BPM)</small></label>
+        <input id="tempo" type="number" min="20" max="300" placeholder="Use MIDI tempo" title="Leave empty to use the tempo from the score">
+        <small class="field-help">Empty = tempo from the MIDI/MuseScore file. Change anytime to speed up or slow down playback.</small>
 
         <label for="transposeMode">Key optimization</label>
         <select id="transposeMode">
           <option value="auto" selected>Auto — easiest GW2 key</option>
           <option value="off">Keep original key</option>
         </select>
-        <small class="field-help">Automatically chooses a nearby transposition with fewer sharps while strongly preferring the 3-octave GW2 playable range.</small>
+        <small class="field-help">Picks a nearby transposition with fewer sharps, preferring the GW2 playable range.</small>
+
+        <details class="advanced-options">
+          <summary>Advanced</summary>
+          <label for="beatGrid">Beat grid</label>
+          <select id="beatGrid">
+            <option value="auto" selected>Auto — preserve the MIDI rhythm</option>
+            <option value="1">Whole beat</option>
+            <option value="0.5">Half-beat</option>
+            <option value="0.25">Quarter-beat</option>
+            <option value="0.125">Eighth-beat</option>
+          </select>
+          <label class="check-row" for="preserveFastNotes">
+            <input id="preserveFastNotes" type="checkbox" checked>
+            <span>Preserve fast notes</span>
+          </label>
+          <small class="field-help beat-grid-help">When enabled, only beats that need finer timing are subdivided. Turn it off to strictly quantize to the selected grid.</small>
+        </details>
 
         <button class="primary-button" id="convertButton" disabled>
           ✦ &nbsp; Convert score
@@ -110,7 +101,7 @@
 
         <div class="legend">
           <span class="symbol">|</span>
-          <span>Bar line (from time signature)</span>
+          <span>End and start of bars</span>
 
           <span class="symbol">━</span>
           <span>Pause for one beat</span>
@@ -128,13 +119,13 @@
           <span>Chord — play notes together</span>
 
           <span class="symbol">·</span>
-          <span>Dotted — +½ of the note itself</span>
+          <span>Dotted (+½ of the note itself)</span>
 
           <span class="symbol">.</span>
-          <span>Quarter dot — +¼ of the note itself</span>
+          <span>Quarter dot (+¼ of the note itself)</span>
 
           <span class="symbol">·.</span>
-          <span>Double dotted — +½ and +¼</span>
+          <span>Double dotted (+½ and +¼)</span>
 
           <span class="symbol outside">{ }</span>
           <span>Below playable octave</span>
@@ -175,11 +166,19 @@
             <strong>All tracks</strong>
             <span id="globalPlaybackStatus">Ready</span>
           </div>
-          <div class="global-player-buttons">
-            <button id="playAllButton" type="button" disabled>▶ Play All</button>
-            <button id="pauseAllButton" type="button" disabled>⏸ Pause All</button>
-            <button id="stopAllButton" type="button" disabled>■ Stop All</button>
-            <button id="downloadAllMidiButton" type="button" disabled title="Download all tracks as WAV (rendered with your SoundFont)">⬇ WAV</button>
+          <div class="global-player-actions">
+            <div class="octave-shift-control" title="Shift notation writing. Raise turns [3] → 3 → (3). Applies immediately.">
+              <span class="octave-shift-label">Octave</span>
+              <button type="button" id="octaveShiftDown" class="octave-shift-btn" aria-label="Lower octave writing">−</button>
+              <span id="octaveShiftValue" class="octave-shift-value">0</span>
+              <button type="button" id="octaveShiftUp" class="octave-shift-btn" aria-label="Raise octave writing">+</button>
+            </div>
+            <div class="global-player-buttons">
+              <button id="playAllButton" type="button" disabled>▶ Play All</button>
+              <button id="pauseAllButton" type="button" disabled>⏸ Pause All</button>
+              <button id="stopAllButton" type="button" disabled>■ Stop All</button>
+              <button id="downloadAllMidiButton" type="button" disabled title="Download all tracks as WAV (rendered with your SoundFont)">⬇ WAV</button>
+            </div>
           </div>
         </div>
         <div class="seek-bar global-seek" aria-label="Seek all tracks">
@@ -270,7 +269,6 @@
 
   <footer class="credits-footer" aria-labelledby="credits-title">
     <div class="credits-inner">
-      <h2 id="credits-title">Credits</h2>
       <ul class="credits-list">
         <li><span class="credit-label">Notation reference:</span> <a href="https://gw2-songbook.com/song/568" target="_blank" rel="noopener noreferrer">Powerina’s GW2 notation</a></li>
         <li><span class="credit-label">Playable piano:</span> <a href="https://sauryelle.github.io/gw2-virtual-piano/" target="_blank" rel="noopener noreferrer">Sarya's Music Thingy</a></li>

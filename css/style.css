@@ -479,6 +479,114 @@ select:focus {
   font-size: 11px;
 }
 
+.global-player-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.octave-shift-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.octave-shift-label {
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 0 2px 0 0;
+  white-space: nowrap;
+}
+
+/* Match .global-player button sizing */
+.global-player .octave-shift-btn {
+  min-height: 32px;
+  min-width: 32px;
+  width: auto;
+  height: auto;
+  padding: 5px 10px;
+  border: 1px solid #34466e;
+  border-radius: 7px;
+  background: #141e35;
+  color: #cbd7f4;
+  font-family: "DM Mono", monospace;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease, opacity .15s ease;
+}
+
+.global-player .octave-shift-btn:hover:not(:disabled) {
+  background: #1d2945;
+  border-color: #526a9e;
+}
+
+.global-player .octave-shift-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.octave-shift-value {
+  min-width: 1.6em;
+  text-align: center;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 500;
+  color: #cbd7f4;
+}
+
+.octave-shift-control.is-disabled .octave-shift-label,
+.octave-shift-control.is-disabled .octave-shift-value {
+  opacity: 0.42;
+}
+
+.advanced-options {
+  margin: 10px 0 4px;
+  border: 1px solid #25385f;
+  border-radius: 8px;
+  background: #0a1328;
+  padding: 0 10px 8px;
+}
+
+.advanced-options > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 10px 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: "DM Mono", monospace;
+  user-select: none;
+}
+
+.advanced-options > summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-options > summary::before {
+  content: "▸ ";
+  color: #6b7a9a;
+}
+
+.advanced-options[open] > summary::before {
+  content: "▾ ";
+}
+
+.advanced-options label {
+  margin-top: 6px;
+}
+
+.advanced-options .field-help {
+  margin-bottom: 4px;
+}
+
 
 /* ============================================================
    GLOBAL TRACK PLAYER
