@@ -119,13 +119,13 @@
           <span>Chord — play notes together</span>
 
           <span class="symbol">·</span>
-          <span>Dotted (+½ of the note itself)</span>
+          <span>Dotted — +½ of the note itself</span>
 
           <span class="symbol">.</span>
-          <span>Quarter dot (+¼ of the note itself)</span>
+          <span>Quarter dot — +¼ of the note itself</span>
 
           <span class="symbol">·.</span>
-          <span>Double dotted (+½ and +¼)</span>
+          <span>Double dotted — +½ and +¼</span>
 
           <span class="symbol outside">{ }</span>
           <span>Below playable octave</span>
@@ -134,7 +134,7 @@
           <span>Above playable octave</span>
 
           <span class="symbol accidental">#</span>
-          <span>Accidental / sharp</span>
+          <span>Accidental / sharp (not playable in GW2)</span>
         </div>
 
         <p class="hint">
@@ -174,27 +174,36 @@
               <button type="button" id="octaveShiftUp" class="octave-shift-btn" aria-label="Raise octave writing">+</button>
             </div>
             <div class="global-player-buttons">
-              <button id="playAllButton" type="button" disabled>▶ Play All</button>
-              <button id="pauseAllButton" type="button" disabled>⏸ Pause All</button>
-              <button id="stopAllButton" type="button" disabled>■ Stop All</button>
-              <button id="downloadAllMidiButton" type="button" disabled title="Download all tracks as WAV (rendered with your SoundFont)">⬇ WAV</button>
+              <div class="track-download-group global-download-group">
+                <select id="exportAllFormat" aria-label="Download format for all tracks" title="WAV = SoundFont audio · MIDI = note data" disabled>
+                  <option value="wav">WAV</option>
+                  <option value="midi">MIDI</option>
+                </select>
+                <button id="downloadAllMidiButton" type="button" disabled title="Download selected tracks">⬇ Download</button>
+              </div>
             </div>
           </div>
         </div>
-        <div class="seek-bar global-seek" aria-label="Seek all tracks">
-          <span id="globalSeekTime" class="seek-time">0:00</span>
-          <input
-            id="globalSeek"
-            type="range"
-            class="seek-input"
-            min="0"
-            max="0"
-            step="0.05"
-            value="0"
-            disabled
-            title="Scrub to a position, then play from there"
-          >
-          <span id="globalSeekDuration" class="seek-time">0:00</span>
+        <div class="transport-row global-transport" aria-label="All tracks playback">
+          <div class="transport-controls">
+            <button id="playAllButton" type="button" disabled title="Play or pause all selected tracks">▶</button>
+            <button id="stopAllButton" type="button" disabled title="Stop all tracks">■</button>
+          </div>
+          <div class="seek-bar global-seek" aria-label="Seek all tracks">
+            <span id="globalSeekTime" class="seek-time">0:00</span>
+            <input
+              id="globalSeek"
+              type="range"
+              class="seek-input"
+              min="0"
+              max="0"
+              step="0.05"
+              value="0"
+              disabled
+              title="Scrub to a position, then play from there"
+            >
+            <span id="globalSeekDuration" class="seek-time">0:00</span>
+          </div>
         </div>
       </div>
 
@@ -269,6 +278,7 @@
 
   <footer class="credits-footer" aria-labelledby="credits-title">
     <div class="credits-inner">
+      <h2 id="credits-title">Credits</h2>
       <ul class="credits-list">
         <li><span class="credit-label">Notation reference:</span> <a href="https://gw2-songbook.com/song/568" target="_blank" rel="noopener noreferrer">Powerina’s GW2 notation</a></li>
         <li><span class="credit-label">Playable piano:</span> <a href="https://sauryelle.github.io/gw2-virtual-piano/" target="_blank" rel="noopener noreferrer">Sarya's Music Thingy</a></li>

@@ -744,6 +744,34 @@ select:focus {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+
+  /* Themed scrollbar (Firefox) */
+  scrollbar-width: thin;
+  scrollbar-color: #3a4f78 #0a1328;
+}
+
+/* Themed scrollbar (Chrome / Safari / Edge) */
+.channels::-webkit-scrollbar {
+  width: 10px;
+}
+
+.channels::-webkit-scrollbar-track {
+  background: #0a1328;
+  border-radius: 8px;
+}
+
+.channels::-webkit-scrollbar-thumb {
+  background: #3a4f78;
+  border-radius: 8px;
+  border: 2px solid #0a1328;
+}
+
+.channels::-webkit-scrollbar-thumb:hover {
+  background: #526a9e;
+}
+
+.channels::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .channel {
@@ -774,6 +802,182 @@ select:focus {
   gap: 10px;
 }
 
+.channel-name-row.track-collapse-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 2px 6px 2px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.channel-name-row.track-collapse-btn:hover {
+  background: rgba(94, 200, 255, 0.06);
+}
+
+.channel-name-row.track-collapse-btn:hover .channel-name,
+.channel-name-row.track-collapse-btn:hover .track-collapse-chevron {
+  color: var(--cyan, #5ec8ff);
+}
+
+.track-collapse-chevron {
+  flex-shrink: 0;
+  font-size: 1em;
+  line-height: 1;
+  color: #8b9bb8;
+}
+
+.channel.is-collapsed .track-collapse-chevron {
+  color: #a8b6d4;
+}
+
+.channel.is-collapsed .notation {
+  display: none;
+}
+
+.channel.is-collapsed .channel-meta {
+  padding-bottom: 6px;
+}
+
+.channel-title-block {
+  min-width: 0;
+}
+
+.transport-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.transport-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.transport-controls button {
+  min-height: 32px;
+  min-width: 32px;
+  padding: 5px 10px;
+  border: 1px solid #34466e;
+  border-radius: 7px;
+  background: #141e35;
+  color: #cbd7f4;
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease, opacity .15s ease;
+}
+
+.transport-controls button:hover:not(:disabled) {
+  background: #1d2945;
+  border-color: #526a9e;
+}
+
+.transport-controls button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.transport-row .seek-bar {
+  flex: 1;
+  min-width: 0;
+}
+
+.global-transport {
+  margin-top: 2px;
+}
+
+.track-transport {
+  margin-top: 4px;
+}
+
+.track-download-group {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  height: 32px;
+  border: 1px solid rgba(120, 180, 255, 0.35);
+  border-radius: 7px;
+  overflow: hidden;
+  background: #141e35;
+  vertical-align: middle;
+}
+
+.track-download-group select,
+.track-download-group .track-export-format,
+#exportAllFormat {
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0 22px 0 9px;
+  border: none;
+  border-right: 1px solid rgba(120, 180, 255, 0.25);
+  border-radius: 0;
+  background-color: #101a31;
+  color: #dbe6ff;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%238b9bb8' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+}
+
+.track-download-group select:disabled,
+#exportAllFormat:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.track-download-group .track-download-btn,
+.track-download-group #downloadAllMidiButton {
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: #cbd7f4;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.track-download-group .track-download-btn:hover:not(:disabled),
+.track-download-group #downloadAllMidiButton:hover:not(:disabled) {
+  background: #1d2945;
+  color: #fff;
+}
+
+.track-download-group .track-download-btn:disabled,
+.track-download-group #downloadAllMidiButton:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
 .track-include {
   display: flex;
   align-items: center;
@@ -792,11 +996,22 @@ select:focus {
 }
 
 .channel.is-excluded {
-  opacity: 0.45;
+  opacity: 0.5;
 }
 
 .channel.is-excluded .notation {
   filter: grayscale(0.35);
+}
+
+.channel.is-excluded .track-controls,
+.channel.is-excluded .track-transport,
+.channel.is-excluded .track-collapse-btn {
+  pointer-events: none;
+}
+
+.channel.is-excluded .track-include {
+  pointer-events: auto;
+  opacity: 1;
 }
 
 .channel-accent {
@@ -1098,15 +1313,15 @@ select:focus {
 
 .track-player {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
   gap: 6px;
 }
 
 .track-seek {
   margin: 0;
-  padding: 0 2px 2px;
-  opacity: 0.55;
+  padding: 0;
+  opacity: 0.85;
   transition: opacity 0.15s ease;
 }
 
@@ -1136,35 +1351,20 @@ select:focus {
   color: #6b7a9a;
 }
 
-.track-player button {
-  min-height: 32px;
-  padding: 5px 10px;
-  border: 1px solid #34466e;
-  border-radius: 7px;
-  background: #141e35;
-  color: #cbd7f4;
-  font-family: "DM Mono", monospace;
-  font-size: 10px;
-  cursor: pointer;
-  transition: background .15s ease, border-color .15s ease, color .15s ease;
-}
-
-.track-player button:hover {
-  background: #1d2945;
-  border-color: #526a9e;
-}
-
-.track-player .track-download-midi {
-  border-color: rgba(120, 180, 255, 0.35);
-}
-
 .global-player #downloadAllMidiButton {
   border-color: rgba(120, 180, 255, 0.35);
 }
 
-.track-player.is-playing .track-play {
+.track-player.is-playing .track-play,
+.global-player-buttons .is-active,
+.transport-controls .track-play.is-active {
   border-color: var(--channel-color, #5eead4);
   color: var(--channel-color, #5eead4);
+}
+
+.global-transport .transport-controls button.is-active {
+  border-color: var(--cyan, #5ec8ff);
+  color: var(--cyan, #5ec8ff);
 }
 
 @media (max-width: 640px) {
@@ -1744,8 +1944,55 @@ label.piano-instrument-picker select {
 
 
 /* Manual SoundFont preset selectors (track rows) */
-.track-controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
-.instrument-picker { display: flex; align-items: center; gap: 7px; color: var(--text-muted); font: 10px "DM Mono", monospace; white-space: nowrap; }
-.instrument-picker select { max-width: 170px; min-height: 32px; padding: 5px 24px 5px 9px; border: 1px solid #34466e; border-radius: 7px; background: #101a31; color: #dbe6ff; font: 11px "DM Mono", monospace; }
-.instrument-picker select:focus { outline: 1px solid var(--cyan); border-color: var(--cyan); }
-@media (max-width: 640px) { .track-controls { width: 100%; justify-content: flex-start; } .track-controls .track-player { width: auto; } }
+.track-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: 10px;
+  min-height: 32px;
+}
+.instrument-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  color: var(--text-muted);
+  font: 10px / 1 "DM Mono", monospace;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.instrument-picker select {
+  max-width: 170px;
+  height: 32px;
+  min-height: 32px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 26px 0 9px;
+  border: 1px solid #34466e;
+  border-radius: 7px;
+  background-color: #101a31;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%238b9bb8' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  color: #dbe6ff;
+  font: 11px / 1 "DM Mono", monospace;
+  vertical-align: middle;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.instrument-picker select:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+.instrument-picker select:focus {
+  outline: 1px solid var(--cyan);
+  border-color: var(--cyan);
+}
+@media (max-width: 640px) {
+  .track-controls { width: 100%; justify-content: flex-start; }
+  .track-controls .track-player { width: auto; }
+}

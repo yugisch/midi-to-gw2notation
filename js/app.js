@@ -129,9 +129,9 @@ const elements = {
 
   channels: document.getElementById("channels"),
   playAllButton: document.getElementById("playAllButton"),
-  pauseAllButton: document.getElementById("pauseAllButton"),
   stopAllButton: document.getElementById("stopAllButton"),
   downloadAllMidiButton: document.getElementById("downloadAllMidiButton"),
+  exportAllFormat: document.getElementById("exportAllFormat"),
   globalPlaybackStatus: document.getElementById("globalPlaybackStatus"),
   globalSeek: document.getElementById("globalSeek"),
   globalSeekTime: document.getElementById("globalSeekTime"),
@@ -275,7 +275,8 @@ function reapplyOctaveMapping() {
 
   const prev = conversionResults.map(t => ({
     included: t.included,
-    selectedSoundFontProgram: t.selectedSoundFontProgram
+    selectedSoundFontProgram: t.selectedSoundFontProgram,
+    collapsed: t.collapsed
   }));
 
   const {
@@ -302,6 +303,7 @@ function reapplyOctaveMapping() {
   conversionResults.forEach((track, index) => {
     if (prev[index]) {
       track.included = prev[index].included;
+      track.collapsed = prev[index].collapsed;
       if (prev[index].selectedSoundFontProgram != null) {
         track.selectedSoundFontProgram = prev[index].selectedSoundFontProgram;
       }
@@ -1288,8 +1290,9 @@ function renderChannels() {
     conversionResults
       .map((track, index) => {
 
+        const collapsed = track.collapsed === true;
         return `
-          <div class="channel" data-track-index="${index}">
+          <div class="channel${collapsed ? " is-collapsed" : ""}" data-track-index="${index}">
 
             <div
               class="channel-meta"
@@ -1307,11 +1310,17 @@ function renderChannels() {
                     >
                   </label>
                   <div class="channel-accent"></div>
-                  <div>
-                    <div class="channel-name">
-                      ${escapeHtml(track.name)}
-                    </div>
-
+                  <div class="channel-title-block">
+                    <button
+                      type="button"
+                      class="track-collapse-btn channel-name-row"
+                      data-track-index="${index}"
+                      aria-expanded="${collapsed ? "false" : "true"}"
+                      title="${collapsed ? "Expand notation" : "Collapse notation"}"
+                    >
+                      <span class="channel-name">${escapeHtml(track.name)}</span>
+                      <span class="track-collapse-chevron" aria-hidden="true">${collapsed ? "▸" : "▾"}</span>
+                    </button>
                     <div class="channel-info">
                       ${track.noteCount} notes · ${escapeHtml(track.playbackInstrumentLabel)}
                     </div>
@@ -1324,27 +1333,45 @@ function renderChannels() {
                       ${getSoundFontPresetOptions(track.selectedSoundFontProgram ?? getDefaultSoundFontProgram(track))}
                     </select>
                   </label>
-                  <div class="track-player" data-player-index="${index}">
-                    <button type="button" class="track-play" title="Play this track">▶ Play</button>
-                    <button type="button" class="track-pause" title="Pause this track">⏸ Pause</button>
-                    <button type="button" class="track-stop" title="Stop this track">■ Stop</button>
-                    <button type="button" class="track-download-midi" title="Download this track as WAV (rendered with your SoundFont)">⬇ WAV</button>
+                  <div class="track-download-group">
+                    <select
+                      class="track-export-format"
+                      data-track-index="${index}"
+                      aria-label="Download format for ${escapeHtml(track.name)}"
+                      title="WAV = SoundFont audio · MIDI = note data"
+                    >
+                      <option value="wav">WAV</option>
+                      <option value="midi">MIDI</option>
+                    </select>
+                    <button
+                      type="button"
+                      class="track-download-btn"
+                      data-track-index="${index}"
+                      title="Download this track"
+                    >⬇ Download</button>
                   </div>
                 </div>
               </div>
-              <div class="seek-bar track-seek" data-seek-index="${index}" aria-label="Seek ${escapeHtml(track.name)}">
-                <span class="seek-time track-seek-time">0:00</span>
-                <input
-                  type="range"
-                  class="seek-input track-seek-input"
-                  data-seek-index="${index}"
-                  min="0"
-                  max="0"
-                  step="0.05"
-                  value="0"
-                  title="Scrub to play from this point"
-                >
-                <span class="seek-time track-seek-duration">0:00</span>
+
+              <div class="transport-row track-transport" data-player-index="${index}">
+                <div class="transport-controls track-player">
+                  <button type="button" class="track-play" title="Play or pause this track">▶</button>
+                  <button type="button" class="track-stop" title="Stop this track">■</button>
+                </div>
+                <div class="seek-bar track-seek" data-seek-index="${index}" aria-label="Seek ${escapeHtml(track.name)}">
+                  <span class="seek-time track-seek-time">0:00</span>
+                  <input
+                    type="range"
+                    class="seek-input track-seek-input"
+                    data-seek-index="${index}"
+                    min="0"
+                    max="0"
+                    step="0.05"
+                    value="0"
+                    title="Scrub to play from this point"
+                  >
+                  <span class="seek-time track-seek-duration">0:00</span>
+                </div>
               </div>
             </div>
 
@@ -1359,10 +1386,53 @@ function renderChannels() {
   setupTrackPlayers();
   setupTrackInstrumentSelectors();
   setupTrackIncludeCheckboxes();
+  setupTrackCollapseButtons();
   setGlobalPlaybackUI("stopped");
   setGlobalPlaybackEnabled(true);
   updateIncludedTracksUI();
 
+}
+
+function setupTrackCollapseButtons() {
+  elements.channels.querySelectorAll(".track-collapse-btn").forEach(btn => {
+    if (btn.dataset.bound === "1") return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", event => {
+      event.preventDefault();
+      const index = Number(btn.dataset.trackIndex);
+      const track = conversionResults[index];
+      if (!track) return;
+      track.collapsed = !track.collapsed;
+      const channel = elements.channels.querySelector(
+        `.channel[data-track-index="${index}"]`
+      );
+      if (!channel) return;
+      const collapsed = track.collapsed === true;
+      channel.classList.toggle("is-collapsed", collapsed);
+      btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      btn.title = collapsed ? "Expand notation" : "Collapse notation";
+      const chevron = btn.querySelector(".track-collapse-chevron");
+      if (chevron) chevron.textContent = collapsed ? "▸" : "▾";
+    });
+  });
+}
+
+/** Collapse or expand every track's notation. */
+function setAllTracksCollapsed(collapsed) {
+  conversionResults.forEach((track, index) => {
+    track.collapsed = !!collapsed;
+    const channel = elements.channels.querySelector(
+      `.channel[data-track-index="${index}"]`
+    );
+    const btn = channel?.querySelector(".track-collapse-btn");
+    channel?.classList.toggle("is-collapsed", !!collapsed);
+    if (btn) {
+      btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      btn.title = collapsed ? "Expand notation" : "Collapse notation";
+      const chevron = btn.querySelector(".track-collapse-chevron");
+      if (chevron) chevron.textContent = collapsed ? "▸" : "▾";
+    }
+  });
 }
 
 /** Indices of tracks whose include checkbox is on (default: all). */
@@ -1370,6 +1440,16 @@ function getIncludedTrackIndices() {
   return conversionResults
     .map((track, index) => (track.included !== false ? index : -1))
     .filter(index => index >= 0);
+}
+
+/** Enable/disable play, sound, seek, download, collapse for one track card. */
+function setTrackControlsEnabled(channel, enabled) {
+  if (!channel) return;
+  channel.querySelectorAll(
+    ".track-play, .track-stop, .track-instrument-select, .track-export-format, .track-download-btn, .track-seek-input, .track-collapse-btn"
+  ).forEach(el => {
+    el.disabled = !enabled;
+  });
 }
 
 function setupTrackIncludeCheckboxes() {
@@ -1382,6 +1462,15 @@ function setupTrackIncludeCheckboxes() {
         `.channel[data-track-index="${index}"]`
       );
       channel?.classList.toggle("is-excluded", !input.checked);
+      // Stop this track if it was playing and got unchecked
+      if (!input.checked) {
+        const state = trackPlayers.get(index);
+        if (state && (state.status === "playing" || state.status === "paused")) {
+          stopTrackPlayer(index, true);
+          updateTrackSeekUI(index, 0);
+          updateTrackPlayerUI(index);
+        }
+      }
       updateIncludedTracksUI();
     });
   });
@@ -1394,7 +1483,9 @@ function updateIncludedTracksUI() {
     const channel = elements.channels.querySelector(
       `.channel[data-track-index="${index}"]`
     );
-    channel?.classList.toggle("is-excluded", track.included === false);
+    const on = track.included !== false;
+    channel?.classList.toggle("is-excluded", !on);
+    setTrackControlsEnabled(channel, on);
   });
   if (elements.globalPlaybackStatus && globalPlaybackState.status === "stopped") {
     elements.globalPlaybackStatus.textContent =
@@ -1404,11 +1495,14 @@ function updateIncludedTracksUI() {
           ? `Ready · ${total} track${total === 1 ? "" : "s"}`
           : `Ready · ${included} of ${total} selected`;
   }
-  // Disable Play All / WAV all when nothing is selected
+  // Disable Play All / download when nothing is selected
   const any = included > 0;
   if (elements.playAllButton) elements.playAllButton.disabled = !any;
   if (elements.downloadAllMidiButton) {
     elements.downloadAllMidiButton.disabled = !any;
+  }
+  if (elements.exportAllFormat) {
+    elements.exportAllFormat.disabled = !any;
   }
 }
 
@@ -2317,8 +2411,28 @@ function updateTrackPlayerUI(index) {
   elements.channels
     .querySelector(`.channel[data-track-index="${index}"]`)
     ?.classList.toggle("is-playing", playing);
-  root.querySelector(".track-play").textContent =
-    state?.status === "paused" ? "▶ Resume" : "▶ Play";
+  const playBtn = root.querySelector(".track-play");
+  if (playBtn) {
+    if (playing) {
+      playBtn.textContent = "⏸";
+      playBtn.title = "Pause this track";
+    } else if (state?.status === "paused") {
+      playBtn.textContent = "▶";
+      playBtn.title = "Resume this track";
+    } else {
+      playBtn.textContent = "▶";
+      playBtn.title = "Play this track";
+    }
+  }
+}
+
+function toggleTrackPlayer(index) {
+  const state = trackPlayers.get(index);
+  if (state?.status === "playing") {
+    pauseTrackPlayer(index);
+  } else {
+    playTrackPlayer(index);
+  }
 }
 
 function getAllTrackDuration(onlyIncluded = true) {
@@ -2341,10 +2455,12 @@ function getAllTrackDuration(onlyIncluded = true) {
 function setGlobalPlaybackEnabled(enabled) {
   if (!elements.playAllButton) return;
   elements.playAllButton.disabled = !enabled;
-  elements.pauseAllButton.disabled = !enabled;
   elements.stopAllButton.disabled = !enabled;
   if (elements.downloadAllMidiButton) {
     elements.downloadAllMidiButton.disabled = !enabled;
+  }
+  if (elements.exportAllFormat) {
+    elements.exportAllFormat.disabled = !enabled;
   }
   // Octave − / + only useful once notation exists
   syncOctaveShiftFromValue();
@@ -2371,8 +2487,27 @@ function setGlobalPlaybackUI(status) {
   }
   elements.globalPlaybackStatus.textContent = label;
 
-  elements.playAllButton?.classList.toggle("is-active", status === "playing");
-  elements.pauseAllButton?.classList.toggle("is-active", status === "paused");
+  if (elements.playAllButton) {
+    elements.playAllButton.classList.toggle("is-active", status === "playing");
+    if (status === "playing") {
+      elements.playAllButton.textContent = "⏸";
+      elements.playAllButton.title = "Pause all tracks";
+    } else if (status === "paused") {
+      elements.playAllButton.textContent = "▶";
+      elements.playAllButton.title = "Resume all tracks";
+    } else {
+      elements.playAllButton.textContent = "▶";
+      elements.playAllButton.title = "Play all selected tracks";
+    }
+  }
+}
+
+function togglePlayAllTrackPlayers() {
+  if (globalPlaybackState.status === "playing") {
+    pauseAllTrackPlayers();
+  } else {
+    playAllTrackPlayers();
+  }
 }
 
 function stopAllTrackPlayers(reset = true) {
@@ -2471,12 +2606,12 @@ function pauseAllTrackPlayers() {
   updateGlobalSeekUI(globalPlaybackState.pausedAt);
 }
 
-elements.playAllButton?.addEventListener("click", playAllTrackPlayers);
-elements.pauseAllButton?.addEventListener("click", pauseAllTrackPlayers);
+elements.playAllButton?.addEventListener("click", togglePlayAllTrackPlayers);
 elements.stopAllButton?.addEventListener("click", () => {
   clearGlobalPlaybackTimer();
   stopAllTrackPlayers(true);
   updateGlobalSeekUI(0);
+  setGlobalPlaybackUI("stopped");
 });
 setupGlobalSeekBar();
 
@@ -2491,13 +2626,20 @@ function setupTrackPlayers() {
 
   elements.channels.querySelectorAll("[data-player-index]").forEach(player => {
     const index = Number(player.dataset.playerIndex);
-    player.querySelector(".track-play").addEventListener("click", () => playTrackPlayer(index));
-    player.querySelector(".track-pause").addEventListener("click", () => pauseTrackPlayer(index));
-    player.querySelector(".track-stop").addEventListener("click", () => {
+    player.querySelector(".track-play")?.addEventListener("click", () => toggleTrackPlayer(index));
+    player.querySelector(".track-stop")?.addEventListener("click", () => {
       stopTrackPlayer(index, true);
       updateTrackSeekUI(index, 0);
+      updateTrackPlayerUI(index);
     });
-    player.querySelector(".track-download-midi")?.addEventListener("click", () => downloadTrackAsWav(index));
+  });
+
+  elements.channels.querySelectorAll(".track-download-btn").forEach(btn => {
+    if (btn.dataset.bound === "1") return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", () => {
+      downloadTrackExport(Number(btn.dataset.trackIndex));
+    });
   });
 
   setupTrackSeekBars();
@@ -2507,7 +2649,7 @@ function setupTrackPlayers() {
   conversionResults.forEach((_, index) => updateTrackSeekUI(index, 0));
 }
 
-elements.downloadAllMidiButton?.addEventListener("click", downloadAllTracksAsWav);
+elements.downloadAllMidiButton?.addEventListener("click", downloadAllTracksExport);
 
 
 /* ============================================================
@@ -2725,21 +2867,170 @@ function setExportStatus(message) {
   if (elements.status) elements.status.textContent = message;
 }
 
-async function downloadTrackAsWav(index) {
+function getTrackExportFormat(index) {
+  const select = document.querySelector(
+    `.track-export-format[data-track-index="${index}"]`
+  );
+  return select?.value === "midi" ? "midi" : "wav";
+}
+
+function getAllExportFormat() {
+  return elements.exportAllFormat?.value === "midi" ? "midi" : "wav";
+}
+
+function sourceFileBaseName() {
+  return midiFile && midiFile.name
+    ? midiFile.name.replace(/\.(midi?|msc[zx])$/i, "")
+    : "gw2";
+}
+
+/** Write variable-length quantity (MIDI delta-time). */
+function writeMidiVarLen(value) {
+  value = Math.max(0, value | 0);
+  const bytes = [value & 0x7f];
+  value >>= 7;
+  while (value > 0) {
+    bytes.unshift((value & 0x7f) | 0x80);
+    value >>= 7;
+  }
+  return bytes;
+}
+
+function appendBytes(target, bytes) {
+  for (const b of bytes) target.push(b & 0xff);
+}
+
+/**
+ * Build a Type-1 SMF from track specs.
+ * specs: [{ name?, program, notes: [{midi, startBeat, durationBeats, velocity}] }]
+ */
+function buildMidiFileBuffer(specs, tempoBpm) {
+  const ppq = 480;
+  const bpm = Number(tempoBpm) || 120;
+  const usPerBeat = Math.round(60_000_000 / bpm);
+
+  const encodeTrack = (events) => {
+    // events: [{ tick, bytes: number[] }]
+    events.sort((a, b) => a.tick - b.tick || 0);
+    const data = [];
+    let lastTick = 0;
+    for (const ev of events) {
+      const delta = Math.max(0, ev.tick - lastTick);
+      lastTick = ev.tick;
+      appendBytes(data, writeMidiVarLen(delta));
+      appendBytes(data, ev.bytes);
+    }
+    // End of track
+    appendBytes(data, writeMidiVarLen(0));
+    appendBytes(data, [0xff, 0x2f, 0x00]);
+    return data;
+  };
+
+  const tracks = [];
+
+  // Tempo / meta track
+  tracks.push(
+    encodeTrack([
+      {
+        tick: 0,
+        bytes: [0xff, 0x51, 0x03, (usPerBeat >> 16) & 0xff, (usPerBeat >> 8) & 0xff, usPerBeat & 0xff]
+      }
+    ])
+  );
+
+  for (const spec of specs) {
+    const program = (spec.program ?? 0) & 0x7f;
+    const channel = (spec.channel ?? 0) & 0x0f;
+    const events = [];
+    // Track name
+    if (spec.name) {
+      const nameBytes = Array.from(
+        new TextEncoder().encode(String(spec.name).slice(0, 32))
+      );
+      events.push({
+        tick: 0,
+        bytes: [0xff, 0x03, nameBytes.length, ...nameBytes]
+      });
+    }
+    events.push({ tick: 0, bytes: [0xc0 | channel, program] });
+
+    for (const note of spec.notes || []) {
+      const startTick = Math.max(0, Math.round(note.startBeat * ppq));
+      const durTicks = Math.max(1, Math.round(note.durationBeats * ppq));
+      const midi = Math.max(0, Math.min(127, note.midi | 0));
+      const vel = Math.max(1, Math.min(127, note.velocity ?? 100));
+      events.push({ tick: startTick, bytes: [0x90 | channel, midi, vel] });
+      events.push({
+        tick: startTick + durTicks,
+        bytes: [0x80 | channel, midi, 0x40]
+      });
+    }
+    tracks.push(encodeTrack(events));
+  }
+
+  const header = [];
+  // MThd
+  appendBytes(header, [0x4d, 0x54, 0x68, 0x64]);
+  appendBytes(header, [0x00, 0x00, 0x00, 0x06]);
+  appendBytes(header, [0x00, 0x01]); // Type 1
+  appendBytes(header, [(tracks.length >> 8) & 0xff, tracks.length & 0xff]);
+  appendBytes(header, [(ppq >> 8) & 0xff, ppq & 0xff]);
+
+  const parts = [new Uint8Array(header)];
+  for (const trackData of tracks) {
+    const th = [];
+    appendBytes(th, [0x4d, 0x54, 0x72, 0x6b]); // MTrk
+    const len = trackData.length;
+    appendBytes(th, [(len >> 24) & 0xff, (len >> 16) & 0xff, (len >> 8) & 0xff, len & 0xff]);
+    parts.push(new Uint8Array(th), new Uint8Array(trackData));
+  }
+
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const out = new Uint8Array(total);
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  return out.buffer;
+}
+
+async function downloadTrackExport(index) {
   const track = conversionResults[index];
   if (!track) return;
 
+  const format = getTrackExportFormat(index);
   const btn = document.querySelector(
-    `.track-player[data-player-index="${index}"] .track-download-midi`
+    `.channel[data-track-index="${index}"] .track-download-btn`
   );
   if (btn) btn.disabled = true;
 
   try {
-    setExportStatus(`Rendering WAV · ${track.name || "track"}…`);
     const program = resolveSoundFontProgram(track);
     const presetName =
       SOUND_FONT_PRESETS.find(p => p.program === program)?.name || `program-${program}`;
+    const base =
+      `${sourceFileBaseName()}_${safeAudioFilename(track.name)}_${safeAudioFilename(presetName)}`;
 
+    if (format === "midi") {
+      setExportStatus(`Building MIDI · ${track.name || "track"}…`);
+      const buffer = buildMidiFileBuffer(
+        [
+          {
+            name: track.name,
+            channel: 0,
+            program,
+            notes: getExportNotesForTrack(track)
+          }
+        ],
+        getPlaybackTempoBpm()
+      );
+      downloadArrayBuffer(buffer, `${base}.mid`, "audio/midi");
+      setExportStatus(`Downloaded ${base}.mid`);
+      return;
+    }
+
+    setExportStatus(`Rendering WAV · ${track.name || "track"}…`);
     const wav = await renderTracksToWavBuffer(
       [
         {
@@ -2750,30 +3041,25 @@ async function downloadTrackAsWav(index) {
       ],
       pct => setExportStatus(`Rendering WAV · ${track.name || "track"}… ${Math.round(pct * 100)}%`)
     );
-
-    const base =
-      (midiFile && midiFile.name
-        ? midiFile.name.replace(/\.(midi?|msc[zx])$/i, "")
-        : "gw2") +
-      `_${safeAudioFilename(track.name)}_${safeAudioFilename(presetName)}`;
     downloadArrayBuffer(wav, `${base}.wav`, "audio/wav");
     setExportStatus(`Downloaded ${base}.wav`);
   } catch (err) {
     console.error(err);
-    showError(err.message || "WAV export failed");
-    setExportStatus("WAV export failed");
+    showError(err.message || "Download failed");
+    setExportStatus("Download failed");
   } finally {
     if (btn) btn.disabled = false;
   }
 }
 
-async function downloadAllTracksAsWav() {
+async function downloadAllTracksExport() {
   const included = getIncludedTrackIndices();
   if (!included.length) {
     showError("No tracks selected. Check at least one track to export.");
     return;
   }
 
+  const format = getAllExportFormat();
   const btn = elements.downloadAllMidiButton;
   if (btn) btn.disabled = true;
 
@@ -2782,33 +3068,40 @@ async function downloadAllTracksAsWav() {
       included.length === conversionResults.length
         ? "all tracks"
         : `${included.length} selected track${included.length === 1 ? "" : "s"}`;
-    setExportStatus(`Rendering ${label} to WAV…`);
+    const base =
+      sourceFileBaseName() +
+      (included.length === conversionResults.length
+        ? "_all_tracks"
+        : `_${included.length}tracks`);
+
     const specs = included.map((index, i) => {
       const track = conversionResults[index];
       return {
+        name: track.name,
         channel: i % 15,
         program: resolveSoundFontProgram(track),
         notes: getExportNotesForTrack(track)
       };
     });
 
+    if (format === "midi") {
+      setExportStatus(`Building MIDI · ${label}…`);
+      const buffer = buildMidiFileBuffer(specs, getPlaybackTempoBpm());
+      downloadArrayBuffer(buffer, `${base}.mid`, "audio/midi");
+      setExportStatus(`Downloaded ${base}.mid`);
+      return;
+    }
+
+    setExportStatus(`Rendering ${label} to WAV…`);
     const wav = await renderTracksToWavBuffer(specs, pct =>
       setExportStatus(`Rendering ${label}… ${Math.round(pct * 100)}%`)
     );
-
-    const base =
-      (midiFile && midiFile.name
-        ? midiFile.name.replace(/\.(midi?|msc[zx])$/i, "")
-        : "gw2") +
-      (included.length === conversionResults.length
-        ? "_all_tracks"
-        : `_${included.length}tracks`);
     downloadArrayBuffer(wav, `${base}.wav`, "audio/wav");
     setExportStatus(`Downloaded ${base}.wav`);
   } catch (err) {
     console.error(err);
-    showError(err.message || "WAV export failed");
-    setExportStatus("WAV export failed");
+    showError(err.message || "Download failed");
+    setExportStatus("Download failed");
   } finally {
     if (btn) btn.disabled = false;
   }
