@@ -296,6 +296,18 @@ select {
   outline: none;
 }
 
+/* Custom ▾ like WAV / Sound dropdowns (sidebar + advanced options) */
+select {
+  padding-right: 28px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: #091226;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%238b9bb8' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  cursor: pointer;
+}
+
 input:focus,
 select:focus {
   border-color: var(--purple);
@@ -1433,6 +1445,28 @@ select:focus {
   flex-wrap: wrap;
 }
 
+.enable-sound-btn {
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px solid var(--cyan, #5ec8ff);
+  border-radius: 7px;
+  background: rgba(94, 200, 255, 0.12);
+  color: var(--cyan, #5ec8ff);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.enable-sound-btn:hover:not(:disabled) {
+  background: rgba(94, 200, 255, 0.22);
+}
+
+.enable-sound-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Minimal segmented control: ‹ MID › */
 .piano-octave-controls {
   display: inline-flex;
@@ -1820,12 +1854,14 @@ label.piano-instrument-picker select {
     height: 220px;
     min-height: 220px;
 
-    overflow-x: auto;
+    /* Keep all 8 white keys in view so black-key % positions stay correct */
+    overflow-x: hidden;
   }
 
   .piano-white-key {
-    min-width: 56px;
-    flex: 0 0 auto;
+    min-width: 0;
+    flex: 1 1 0;
+    padding-bottom: 14px;
   }
 }
 
@@ -1844,28 +1880,36 @@ label.piano-instrument-picker select {
     height: 190px;
     min-height: 190px;
     margin: 12px 10px 6px;
+    overflow-x: hidden;
   }
 
   .piano-white-key {
-    min-width: 48px;
-    padding-bottom: 14px;
+    min-width: 0;
+    flex: 1 1 0;
+    padding: 0 2px 12px;
   }
 
   .piano-note-name {
-    font-size: 13px;
+    font-size: 12px;
   }
 
   .piano-shortcut {
-    font-size: 9px;
+    font-size: 8px;
   }
 
+  /* Slightly wider black keys on narrow screens; still centered via translateX(-50%) */
   .piano-black-key {
-    width: 8%;
-    height: 56%;
+    width: 9.5%;
+    height: 58%;
+    padding-bottom: 10px;
   }
 
   .piano-black-name {
     font-size: 10px;
+  }
+
+  .piano-black-shortcut {
+    font-size: 8px;
   }
 
   .piano-help {

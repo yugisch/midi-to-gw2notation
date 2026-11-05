@@ -134,7 +134,7 @@
           <span>Above playable octave</span>
 
           <span class="symbol accidental">#</span>
-          <span>Accidental / sharp (not playable in GW2)</span>
+          <span>Accidental / sharp</span>
         </div>
 
         <p class="hint">
@@ -246,6 +246,12 @@
           </div>
 
           <div class="piano-toolbar">
+            <button
+              type="button"
+              id="enableSoundButton"
+              class="enable-sound-btn"
+              title="Download and load the SoundFont (needed for piano and track playback)"
+            >Enable sound</button>
             <div class="piano-octave-controls" role="group" aria-label="Octave">
               <button type="button" id="octaveDown" class="piano-icon-btn" title="Lower octave (9)" aria-label="Lower octave">‹</button>
               <div class="octave-display" id="pianoOctaveDisplay" aria-live="polite">MID</div>
@@ -284,6 +290,8 @@
         <li><span class="credit-label">Playable piano:</span> <a href="https://sauryelle.github.io/gw2-virtual-piano/" target="_blank" rel="noopener noreferrer">Sarya's Music Thingy</a></li>
         <li><span class="credit-label">SoundFont file:</span> Sefja and Jenpai</li>
         <li><span class="credit-label">Resource materials to be tested:</span> Stump and Mellow</li>
+        <li><span class="credit-label">Muscore to Midi:</span> <a href="https://github.com/LibreScore/webmscore" target="_blank" rel="noopener noreferrer">webmscore</a></li>
+        <li><span class="credit-label">SoundFont playback:</span> <a href="https://www.fluidsynth.org/" target="_blank" rel="noopener noreferrer">FluidSynth </a></li>
       </ul>
     </div>
   </footer>

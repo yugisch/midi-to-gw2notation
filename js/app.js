@@ -1760,6 +1760,39 @@ function getPlaybackAudioContext() {
   return playbackAudioContext;
 }
 
+function isMobileClient() {
+  return (
+    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") ||
+    (navigator.maxTouchPoints > 1 && /Mac/i.test(navigator.platform || ""))
+  );
+}
+
+/** Mobile browsers only unlock audio after a real user gesture. */
+async function unlockPlaybackAudioContext() {
+  try {
+    const ctx = getPlaybackAudioContext();
+    if (ctx.state === "suspended") await ctx.resume();
+    return ctx.state === "running" || ctx.state === "suspended";
+  } catch (e) {
+    console.warn("AudioContext unlock failed", e);
+    return false;
+  }
+}
+
+// Prime AudioContext on the first tap/click anywhere (required on mobile Chrome)
+let audioUnlockBound = false;
+function bindAudioUnlockOnce() {
+  if (audioUnlockBound) return;
+  audioUnlockBound = true;
+  const unlock = () => {
+    unlockPlaybackAudioContext();
+  };
+  document.addEventListener("pointerdown", unlock, { passive: true, once: false });
+  document.addEventListener("touchstart", unlock, { passive: true, once: false });
+  document.addEventListener("click", unlock, { passive: true, once: false });
+}
+bindAudioUnlockOnce();
+
 function midiToFrequency(midi) {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
@@ -1962,6 +1995,11 @@ async function loadSoundFontBuffer() {
 
   // Try network fetch (works on https / http hosts like GitHub Pages)
   try {
+    if (isMobileClient()) {
+      setSoundFontStatusMessage(
+        "Downloading SoundFont (~43 MB)… keep this tab open"
+      );
+    }
     const buffer = await fetchSoundFontWithProgress("assets/gw2Instruments.sf2");
     if (!buffer || buffer.byteLength < 1000) {
       throw new Error("SoundFont file is empty or too small");
@@ -1975,8 +2013,17 @@ async function loadSoundFontBuffer() {
       "Could not fetch assets/gw2Instruments.sf2 (common when opening index.html via file://).",
       fetchError
     );
-    // Fall back: let the user pick the file once
+    // On mobile, programmatic file pickers are blocked outside a direct
+    // gesture — surface a clear retry instead of a silent failed picker.
     soundFontEngine.status = "needs-file";
+    soundFontEngine.lastError =
+      fetchError?.message ||
+      "Could not download SoundFont. Check your connection and try again.";
+    if (isMobileClient() || location.protocol === "https:") {
+      throw new Error(
+        `${soundFontEngine.lastError} Tap “Enable sound” to retry, or use a stable Wi‑Fi connection.`
+      );
+    }
     const buffer = await pickSoundFontFile();
     soundFontEngine.pickedBuffer = buffer;
     writeSoundFontToCache(buffer);
@@ -2005,15 +2052,18 @@ async function ensureSoundFontReady() {
       }
       await window.JSSynth.waitForReady();
 
+      await unlockPlaybackAudioContext();
       const ctx = getPlaybackAudioContext();
-      if (ctx.state === "suspended") await ctx.resume();
+      if (ctx.state === "suspended") {
+        await ctx.resume();
+      }
 
       const synth = new window.JSSynth.Synthesizer();
-      // Higher polyphony so dense tracks / chords don't drop notes (default is often 256, but
-      // some builds are lower). initialGain raises the quiet FluidSynth default (~0.2).
+      // Mobile: lower polyphony to reduce WASM memory pressure
+      const polyphony = isMobileClient() ? 64 : 256;
       try {
         synth.init(ctx.sampleRate, {
-          polyphony: 256,
+          polyphony,
           initialGain: soundFontEngine.masterGain
         });
       } catch (_) {
@@ -2027,7 +2077,9 @@ async function ensureSoundFontReady() {
         console.warn("Could not set FluidSynth master gain", e);
       }
 
-      const node = synth.createAudioNode(ctx, 8192);
+      // Smaller ScriptProcessor buffer is more reliable on mobile Chrome
+      const bufferSize = isMobileClient() ? 2048 : 8192;
+      const node = synth.createAudioNode(ctx, bufferSize);
       // Extra GainNode so overall level is audible without maxing OS volume
       const gainNode = ctx.createGain();
       gainNode.gain.value = soundFontEngine.outputGain;
@@ -2038,27 +2090,36 @@ async function ensureSoundFontReady() {
 
       // Parsing ~43 MB into FluidSynth WASM is the slow step on phones (CPU/memory).
       setSoundFontStatusMessage(
-        "Initializing synthesizer… (first time can take 30–90s on mobile)"
+        isMobileClient()
+          ? "Initializing synthesizer… first time can take 1–2 min on phones — don’t switch apps"
+          : "Initializing synthesizer…"
       );
       // Yield so the status text paints before the heavy WASM work blocks the main thread
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise(r => setTimeout(r, 80));
 
       soundFontEngine.soundFontId = await synth.loadSFont(sfBuffer);
+      // Resume again after the long load — mobile often re-suspends
+      await unlockPlaybackAudioContext();
+
       soundFontEngine.synth = synth;
       soundFontEngine.node = node;
       soundFontEngine.gainNode = gainNode;
       soundFontEngine.status = "ready";
       soundFontEngine.lastError = null;
       setSoundFontStatusMessage("SoundFont ready · C4–C5");
+      updateEnableSoundButton();
       return true;
     } catch (error) {
       console.error("GW2 SoundFont could not be initialized.", error);
       soundFontEngine.status = "error";
       soundFontEngine.lastError = error?.message || String(error);
       soundFontEngine.readyPromise = null;
-      setSoundFontStatusMessage(
-        `SoundFont failed: ${soundFontEngine.lastError}`
-      );
+      const msg = soundFontEngine.lastError;
+      const memoryHint = /memory|allocation|oom|array buffer/i.test(msg)
+        ? " Phone may be out of memory — close other tabs and retry."
+        : "";
+      setSoundFontStatusMessage(`SoundFont failed: ${msg}${memoryHint}`);
+      updateEnableSoundButton();
       return false;
     }
   })();
@@ -3439,6 +3500,8 @@ const pianoElements = {
   status:
     document.getElementById("pianoStatus"),
 
+  enableSound:
+    document.getElementById("enableSoundButton"),
 
   octaveDown:
     document.getElementById("octaveDown"),
@@ -3446,6 +3509,44 @@ const pianoElements = {
   octaveUp:
     document.getElementById("octaveUp")
 };
+
+function updateEnableSoundButton() {
+  const btn = pianoElements.enableSound;
+  if (!btn) return;
+  if (soundFontEngine.status === "ready") {
+    btn.hidden = true;
+    btn.disabled = true;
+    btn.textContent = "Sound ready";
+    return;
+  }
+  btn.hidden = false;
+  if (soundFontEngine.status === "loading") {
+    btn.disabled = true;
+    btn.textContent = "Loading…";
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent =
+    soundFontEngine.status === "error" || soundFontEngine.status === "needs-file"
+      ? "Retry sound"
+      : "Enable sound";
+}
+
+pianoElements.enableSound?.addEventListener("click", async () => {
+  await unlockPlaybackAudioContext();
+  updateEnableSoundButton();
+  setSoundFontStatusMessage(
+    isMobileClient()
+      ? "Loading SoundFont (~43 MB)… stay on this page"
+      : "Loading SoundFont…"
+  );
+  const ready = await ensureSoundFontReady();
+  updateEnableSoundButton();
+  if (ready) {
+    setSoundFontStatusMessage("SoundFont ready · piano unlocked");
+  }
+});
+updateEnableSoundButton();
 
 
 /*
@@ -3722,6 +3823,7 @@ function startPianoNote(semitone, buttonElement) {
   if (buttonElement) buttonElement.classList.add("active");
   const noteName = getPianoNoteLabel(semitone);
   pianoElements.status.textContent = `Loading SoundFont · ${noteName}`;
+  updateEnableSoundButton();
 
   const pendingVoice = {
     soundFont: false,
@@ -3732,15 +3834,22 @@ function startPianoNote(semitone, buttonElement) {
     button: buttonElement
   };
   piano.activeNotes.set(semitone, pendingVoice);
-  ensureSoundFontReady().then(ready => {
+  unlockPlaybackAudioContext()
+    .then(() => ensureSoundFontReady())
+    .then(ready => {
+    updateEnableSoundButton();
     if (!ready) {
       if (piano.activeNotes.get(semitone) === pendingVoice) piano.activeNotes.delete(semitone);
       if (buttonElement) buttonElement.classList.remove("active");
       pianoElements.status.textContent = soundFontEngine.lastError
         ? `SoundFont failed: ${soundFontEngine.lastError}`
-        : "SoundFont failed to load. Check assets/gw2Instruments.sf2 and the browser console.";
+        : "SoundFont failed to load. Tap Enable sound and try again.";
       return;
     }
+    // Mobile often suspends AudioContext during the long load
+    return unlockPlaybackAudioContext().then(() => true);
+  }).then(ready => {
+    if (!ready) return;
     if (piano.activeNotes.get(semitone) !== pendingVoice) return;
     const channel = 15;
     const program = piano.selectedSoundFontProgram;
