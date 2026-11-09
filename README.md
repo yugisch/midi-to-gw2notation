@@ -1,113 +1,124 @@
-# 🎵 GW2 MIDI to Numeric Notation
+# MIDI to GW2 Numeric Notation
 
-A web-based MIDI converter designed for Guild Wars 2 musicians.
+A browser-based converter for **Guild Wars 2** musicians.
 
-This application converts **MIDI** (`.mid` / `.midi`) and **MuseScore** (`.mscz` / `.mscx`) files into readable **Guild Wars 2 numeric music notation**, while providing tools to make the resulting notation easier to understand, edit, and play.
+Upload a **MIDI** (`.mid` / `.midi`) or **MuseScore** (`.mscz` / `.mscx`) score and get **GW2 numeric notation** per track, with playback, a playable piano, and audio/MIDI export — all running locally in your browser.
 
-The project runs entirely in the browser. MuseScore files are turned into MIDI in the browser with [webmscore](https://github.com/LibreScore/webmscore) (first use downloads a ~9 MB WASM engine from the CDN).
-
----
-
-## ✨ Features
-
-### 🎼 MIDI / MuseScore to GW2 Numeric Notation
-
-Upload a `.mid` / `.midi` or `.mscz` / `.mscx` file and convert its musical notes into Guild Wars 2 numeric notation.
-
-The converter supports:
-
-- Multiple MIDI tracks/channels
-- Separate notation output for each track
-- Chords
-- Octave notation
-- Sharps / accidentals
-- Note duration markings
-- Pauses and rests
-- Beat-based formatting
-- Bar separators
-- Automatic line wrapping
-
-Each MIDI channel is displayed separately, making it easier to identify melodies, bass lines, chords, and other parts of a song.
+Live demo (if published): [yugisch.github.io/midi-to-gw2notation](https://yugisch.github.io/midi-to-gw2notation/)
 
 ---
 
-### 🎹 Automatic Key Optimization
+## Features
 
-The converter can automatically transpose a song into a more convenient key for GW2.
+### Score → GW2 notation
 
-Instead of simply converting the original MIDI key, the optimizer checks different transpositions and looks for a version that produces:
+- Accepts **MIDI** and **MuseScore** (`.mscz` / `.mscx` via [webmscore](https://github.com/LibreScore/webmscore) in the browser)
+- One notation block per track / channel
+- Chords, rests, accidentals, octave marks, duration marks (including dotted styles aligned with common GW2 practice)
+- **Bar lines follow the score’s time signature** (not a fixed 4/4 grid)
+- Optional **key optimization** (auto-transpose toward fewer sharps / GW2-friendly range)
+- **Advanced beat grid** (auto or fixed resolution, with “preserve fast notes”)
+- **Live octave shift** (− / 0 / +) on the output bar — raises or lowers written notes immediately without re-converting
+- **Copy all** and **Download .txt** (UTF-8)
 
-- Fewer sharp/accidental notes
-- More natural notes
-- Better compatibility with the GW2 playable range
-- Minimal unnecessary transposition
+Notation style is guided by [Powerina’s GW2 notation](https://gw2-songbook.com/song/568).
 
-This is especially useful for MIDI files that contain many `#` notes and would otherwise be difficult to play.
+### Playback
 
-You can choose between:
+- **Play / pause / stop** and a **seek bar** for all selected tracks and for each track
+- Track **include** checkboxes (default: all on) — only checked tracks are used for Play All, text export, and download
+- Unchecked tracks dim and **disable** their controls until checked again
+- Per-track **Sound** preset (from the bundled GW2 SoundFont)
+- Per-track **collapse** — click the track name to fold/expand notation
+- **Playback tempo (BPM)** override, or leave empty to use the file’s tempo
 
-- **Auto — easiest GW2 key**
-- **Keep original key**
+### Export
 
-The automatic optimizer applies the same transposition to the musical tracks so the song remains musically consistent.
+Per track and for all selected tracks:
+
+| Format | What you get |
+|--------|----------------|
+| **WAV** | Rendered with the **same SoundFont** you hear in the app |
+| **MIDI** | Standard Type-1 `.mid` (note data + program changes; not SF2 samples) |
+
+### Playable piano
+
+- On-page keyboard inspired by [Sarya’s Music Thingy](https://sauryelle.github.io/gw2-virtual-piano/)
+- Instrument presets from the same SoundFont
+- Octave low / mid / high with **disabled steps** when an instrument can’t play that range
+- Bass / Verdarach-style mapping so lower written ranges stay playable on the keyboard
+- **Enable sound** control for clearer first-time load (especially on mobile)
+
+### SoundFont engine
+
+- Bundled `assets/gw2Instruments.sf2` (~43 MB)
+- [FluidSynth](https://www.fluidsynth.org/) via [`js-synthesizer`](https://github.com/paulrosen/JS-Synthesizer) (WASM in `js/vendor/`)
+- IndexedDB cache after the first successful load
+- Mobile-oriented handling (progress messages, audio unlock, lower polyphony)
+
+Presets include: Minstrel, Piano, Bell, Bell (Legacy), Choir Bell (Legacy), Pipe Organ, Lute, Bass, Harp, Horn, Verdarach, Flute, Choir Bell, Drums. Catalog: `assets/soundfont-presets.json` / `.xml`.
 
 ---
 
-### 🎚️ Adaptive Beat Grid
+## How to run
 
-The converter includes a configurable beat grid for controlling the resolution of note timing.
+Serve the project folder over **HTTP** (required for a smooth SoundFont load).
 
-Available resolutions include:
+### Windows
 
-- **Auto** to preserve midi rythm
-- Whole beat
-- Half beat
-- Quarter beat
-- Eighth beat
+```bat
+py -m http.server 8080
+```
 
-The converter can automatically refine the selected grid when faster note onsets are detected, helping prevent notes from disappearing when using a coarse grid.
+or:
 
-This allows you to use a simpler grid for normal songs while still preserving faster passages when necessary.
+```bat
+python -m http.server 8080
+```
 
----
+Then open [http://localhost:8080](http://localhost:8080).
 
-### 🎵 GW2 Notation Formatting
+> On Windows, `python3` is often missing; prefer `py` or `python`.
 
-The generated notation follows Powerina's GW2 notation: 
-https://gw2-songbook.com/song/568 
-
----
-
-## 🚀 How to run
-
-**Recommended (HTTP server):** from this folder run:
+### macOS / Linux
 
 ```bash
 python3 -m http.server 8080
 ```
 
-Then open `http://localhost:8080` in your browser.
+### Opening `index.html` via `file://`
 
-**Open `index.html` directly (file://):** also supported. Browsers block loading the 43 MB SoundFont via `fetch` on `file://`, so on first play the app will ask you to pick `assets/gw2Instruments.sf2` once. After that, piano and tracks use the loaded SoundFont.
+Supported, but browsers **block** `fetch` of the local SF2. On first play the app may ask you to pick `assets/gw2Instruments.sf2` once. Prefer the HTTP server when possible.
 
-Engine scripts live in `js/vendor/` (no internet required for them). CDN is only used as a fallback if those files are missing.
+### GitHub Pages
 
-## SoundFont playback
-
-The app includes `assets/gw2Instruments.sf2` and uses FluidSynth WebAssembly through js-synthesizer to play track notes and the on-page piano with SoundFont samples. The first playback initializes the synthesizer and loads the roughly 43 MB SoundFont, so it may take a little while. Playback is SoundFont-only: if initialization fails, the status line shows the real error message.
-
-## SoundFont preset selection
-
-The bundled `assets/gw2Instruments.sf2` SoundFont includes these melodic presets: Minstrel, Piano, Bell, Bell (Legacy), Choir Bell (Legacy), Pipe Organ, Lute, Bass, Harp, Horn, Verdarach, Flute, Choir Bell, and Drums. Use the Sound dropdown on each track to audition a different preset, or use the Play with dropdown above the virtual keyboard. The preset catalog is also provided as `assets/soundfont-presets.xml` and `assets/soundfont-presets.json`.
+Static hosting works. First SoundFont load downloads ~43 MB and may take a while on phones — use **Enable sound** / Wi‑Fi and keep the tab open until status shows ready.
 
 ---
 
-## 🙌 Credits
+## Project layout
 
-- Notation reference: [Powerina's GW2 notation](https://gw2-songbook.com/song/568)
-- Playable piano: [Sarya's Music Thingy](https://sauryelle.github.io/gw2-virtual-piano/)
-- Muscore to Midi: [webmscore](https://github.com/LibreScore/webmscore)
-- SoundFont playback: [FluidSynth](https://www.fluidsynth.org/) WebAssembly via [`js-synthesizer`](https://github.com/paulrosen/JS-Synthesizer)
+```text
+├── index.html
+├── css/style.css
+├── js/app.js
+├── js/vendor/          # Midi.js, js-synthesizer, libfluidsynth
+└── assets/
+    ├── gw2Instruments.sf2
+    ├── soundfont-presets.json
+    └── soundfont-presets.xml
+```
+
+Everything runs in the browser. MuseScore support loads webmscore WASM from the CDN on first use (~9 MB). Vendor synth scripts are local; CDN is only a fallback if those files are missing.
+
+---
+
+## Credits
+
+- Notation reference: [Powerina’s GW2 notation](https://gw2-songbook.com/song/568)
+- Playable piano: [Sarya’s Music Thingy](https://sauryelle.github.io/gw2-virtual-piano/)
+- MuseScore → MIDI: [webmscore](https://github.com/LibreScore/webmscore)
+- SoundFont playback: FluidSynth WASM via [js-synthesizer](https://github.com/paulrosen/JS-Synthesizer)
 - SoundFont file: Sefja and Jenpai
-- Resources material to be tested: Stump and Mellow
-
+- Resource materials for testing: Stump and Mellow
+- App: Nero/Yugi
