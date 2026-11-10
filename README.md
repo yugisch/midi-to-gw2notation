@@ -4,7 +4,7 @@ A browser-based converter for **Guild Wars 2** musicians.
 
 Upload a **MIDI** (`.mid` / `.midi`) or **MuseScore** (`.mscz` / `.mscx`) score and get **GW2 numeric notation** per track, with playback, a playable piano, and audio/MIDI export — all running locally in your browser.
 
-Live demo (if published): [yugisch.github.io/midi-to-gw2notation](https://yugisch.github.io/midi-to-gw2notation/)
+Live demo: [yugisch.github.io/midi-to-gw2notation](https://yugisch.github.io/midi-to-gw2notation/)
 
 ---
 
